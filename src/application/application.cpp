@@ -28,6 +28,8 @@
 #include "resources/Texture.hpp"
 #include "resources/ShaderProgram.hpp"
 
+#include "ecs/components/Collider.hpp"
+#include "ecs/components/Rigidbody.hpp"
 
 Application::Application() 
 : window(nullptr), running(false), lastFrameTime(0.0), stateManager(nullptr) {}
@@ -89,6 +91,8 @@ bool Application::Init(int width, int height, const char* title) {
 
     world = std::make_unique<World>();
     Logger::Info("Build Marker v2: creating systems");
+    physicsSystem = std::make_unique<PhysicsSystem>(*world);
+    Logger::Info("PhysicsSystem created");
     renderSystem = std::make_unique<RenderSystem>(*world, *renderer);
     Logger::Info("RenderSystem created");
     animationSystem = std::make_unique<AnimationSystem>(*world);
@@ -135,6 +139,7 @@ void Application::Run() {
 
         while (m_simAccumulator >= SIM_STEP) {
             if (stateManager) stateManager->Update(SIM_STEP);
+            if (physicsSystem) physicsSystem->Update(SIM_STEP);
             if (animationSystem) animationSystem->Update(SIM_STEP);
 
             m_simAccumulator -= SIM_STEP;
@@ -203,7 +208,7 @@ void Application::CreateDemoLoadedEntities() {
     }
 
     // Спавним 3 сущности
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 2; ++i) {
         EntityId e = world->CreateEntity();
 
         Transform t{};
@@ -221,6 +226,46 @@ void Application::CreateDemoLoadedEntities() {
         world->AddComponent<MeshRenderer>(e, mr);
 
         world->AddComponent<Tag>(e, { "LoadedQuad_" + std::to_string(i) });
+
+        Rigidbody rb{};
+        rb.velocity = glm::vec3(0.0f, 0.0f, 0.0f);
+        rb.useGravity = false;
+        world->AddComponent<Rigidbody>(e, rb);
+
+        Collider col{};
+        col.type = ColliderType::Box;
+        col.halfExtents = glm::vec3(0.5f, 0.5f, 0.5f);
+        world->AddComponent<Collider>(e, col);
+    }
+
+    for (int i = 0; i < 1; ++i) {
+        EntityId e = world->CreateEntity();
+
+        Transform t{};
+        t.position = glm::vec3(-3.0f + i * 3.0f, -3.0f, 0.0f);
+        t.rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+        t.scale = glm::vec3(2.0f);
+        world->AddComponent<Transform>(e, t);
+
+        MeshRenderer mr{};
+        mr.primitiveType = PrimitiveType::None;
+        mr.mesh = mesh;
+        mr.texture = texture;
+        mr.shader = shader;
+        mr.tint = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+        world->AddComponent<MeshRenderer>(e, mr);
+
+        world->AddComponent<Tag>(e, { "LoadedQuad_" + std::to_string(i) });
+
+        Rigidbody rb{};
+        rb.velocity = glm::vec3(0.0f, 0.0f, 0.0f);
+        rb.useGravity = false;
+        world->AddComponent<Rigidbody>(e, rb);
+
+        Collider col{};
+        col.type = ColliderType::Box;
+        col.halfExtents = glm::vec3(0.5f, 0.5f, 0.5f);
+        world->AddComponent<Collider>(e, col);
     }
 
     Logger::Info("Demo: 3 entities sharing one mesh + one texture + one shader");

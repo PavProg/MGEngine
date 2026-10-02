@@ -5,6 +5,7 @@
 #include "render/IRenderAdapter.hpp"
 #include "ecs/systems/RenderSystem.hpp"
 #include "ecs/systems/AnimationSystem.hpp"
+#include "ecs/systems/PhysicsSystem.hpp"
 #include "scene/SceneSettings.hpp"
 #include "resources/ResourceManager.hpp"
 
@@ -29,6 +30,7 @@ class Application {
         std::unique_ptr<World> world;
         std::unique_ptr<RenderSystem> renderSystem;
         std::unique_ptr<AnimationSystem> animationSystem;
+        std::unique_ptr<PhysicsSystem> physicsSystem;
 
         std::unique_ptr<ResourceManager> resourceManager;
 
@@ -38,7 +40,7 @@ class Application {
 
         float m_simAccumulator = 0.0f;
         float m_simSpeed = 1.0f;
-        static constexpr float SIM_STEP = 1.0f / 30.0f;
+        static constexpr float SIM_STEP = 1.0f / 60.0f;
 
         float m_hotReloadAccumulator = 0.0f;
         static constexpr float HOT_RELOAD_INTERVAL = 0.5f;

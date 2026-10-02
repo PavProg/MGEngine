@@ -377,7 +377,7 @@ GPUShader OpenGLAdapter::CompileShader(const std::string& vsSrc, const std::stri
         Logger::Error(std::string("Shader link error: ") + log);
         glDeleteShader(vs);
         glDeleteShader(fs);
-        glDeleteShader(program);
+        glDeleteProgram(program);
         return {};
     }
 

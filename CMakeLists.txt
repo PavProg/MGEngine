@@ -31,6 +31,7 @@ set(SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/ShaderLoader.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/StbImage.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/TinyObjLoader.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/PhysicsSystem.cpp
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES})
