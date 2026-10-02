@@ -76,6 +76,8 @@ void ResourceManager::ReloadModifiedTextures() {
 		if (!alive) continue;
 		auto res = std::static_pointer_cast<Resource<Texture>>(alive);
 
+		if (res->state.load() != ResourceState::Ready) continue;	// Грузящиеся ресурсы не трогаем
+
 		std::error_code ec;
 		auto current = std::filesystem::last_write_time(res->path, ec);
 		if (ec || current <= res->lastModified) continue;

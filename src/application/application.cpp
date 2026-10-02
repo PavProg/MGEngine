@@ -31,6 +31,8 @@
 #include "ecs/components/Collider.hpp"
 #include "ecs/components/Rigidbody.hpp"
 
+#include "core/profiler.hpp"
+
 Application::Application() 
 : window(nullptr), running(false), lastFrameTime(0.0), stateManager(nullptr) {}
 
@@ -107,13 +109,17 @@ bool Application::Init(int width, int height, const char* title) {
     return true;
 }
 
-void Application::Run() {
+void Application::Run() {   // Внутри разметка под tracy. Размечаем фазы кадра, системы, все что может блокнуться и циклы (целиком).
+    MGE_PROFILE_THREAD("Main");
+
     Logger::Info("Entering main loop");
 
     lastFrameTime = glfwGetTime();
     m_simAccumulator = 0.0f;
 
     while (running && !glfwWindowShouldClose(window)) {
+        MGE_PROFILE_SCOPE_N("Frame");
+
         double currentTime = glfwGetTime();
         float realDelta = static_cast<float>(currentTime - lastFrameTime);
         lastFrameTime = currentTime;
@@ -121,77 +127,83 @@ void Application::Run() {
         // Защита от spiral of death
         if (realDelta > 0.25f) realDelta = 0.25f;
 
-        glfwPollEvents();
+        { MGE_PROFILE_SCOPE_N("PollEvents"); glfwPollEvents(); }
+        { MGE_PROFILE_SCOPE_N("PumpUploads"); if (resourceManager) resourceManager->PumpUploads(); }
 
-        if (resourceManager) resourceManager->PumpUploads();
-
-        m_hotReloadAccumulator += realDelta;
-        if (m_hotReloadAccumulator >= HOT_RELOAD_INTERVAL) {
-            m_hotReloadAccumulator = 0.0f;
-            if (resourceManager) {
-                resourceManager->ReloadModifiedShaders();
-                resourceManager->ReloadModifiedTextures();
+        {
+            MGE_PROFILE_SCOPE_N("HotReload");
+            m_hotReloadAccumulator += realDelta;
+            if (m_hotReloadAccumulator >= HOT_RELOAD_INTERVAL) {
+                m_hotReloadAccumulator = 0.0f;
+                if (resourceManager) {
+                    resourceManager->ReloadModifiedShaders();
+                    resourceManager->ReloadModifiedTextures();
+                }
             }
         }
 
         // Phase SIM
-        m_simAccumulator += realDelta * m_simSpeed;
+        int simSteps = 0;
+        {
+            MGE_PROFILE_SCOPE_NC("Simulation", 0xDC143C);   // Логика - красным
+            m_simAccumulator += realDelta * m_simSpeed;
+            while (m_simAccumulator >= SIM_STEP) {
+                MGE_PROFILE_SCOPE_N("SimStep");
+                    { MGE_PROFILE_SCOPE_N("StateLogic"); if (stateManager) stateManager->Update(SIM_STEP); }
+                    { MGE_PROFILE_SCOPE_N("Physics"); if (physicsSystem) physicsSystem->Update(SIM_STEP); }
+                    { MGE_PROFILE_SCOPE_N("Animation"); if (animationSystem) animationSystem->Update(SIM_STEP); }
+                    
+                    m_simAccumulator -= SIM_STEP;
+                    ++simSteps;
+            }
+        }
+        MGE_PROFILE_PLOT("SimStepsPerFrame", static_cast<int64_t>(simSteps));
 
-        while (m_simAccumulator >= SIM_STEP) {
-            if (stateManager) stateManager->Update(SIM_STEP);
-            if (physicsSystem) physicsSystem->Update(SIM_STEP);
-            if (animationSystem) animationSystem->Update(SIM_STEP);
+        {            // Настройка рендера для этого кадра
+            MGE_PROFILE_SCOPE_NC("Render", 0x4169E1); // Рендер- синим
 
-            m_simAccumulator -= SIM_STEP;
+            int fbWidth, fbHeight;
+            glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
+            glViewport(0, 0, fbWidth, fbHeight);
+
+            float aspect = (fbHeight > 0)
+                ? static_cast<float>(fbWidth) / static_cast<float>(fbHeight)
+                : 1.0f;
+
+            renderer->Clear(
+                m_sceneSettings.background.r,
+                m_sceneSettings.background.g,
+                m_sceneSettings.background.b,
+                m_sceneSettings.background.a
+            );
+
+            glm::mat4 view = glm::lookAt(
+                m_sceneSettings.camera.position,
+                m_sceneSettings.camera.target,
+                m_sceneSettings.camera.up
+            );
+
+            glm::mat4 projection;
+            if (m_sceneSettings.camera.projection == ProjectionType::Orthographic) {
+                float halfH = m_sceneSettings.camera.orthoSize;
+                float halfW = halfH * aspect;
+                // ortho - это матрица, которая создает параллепипед с 4 аргументами: лева, права, вверх, низ, nearPlan, farPlan
+                projection = glm::ortho(-halfW, halfW, -halfH, halfH, m_sceneSettings.camera.nearPlan, m_sceneSettings.camera.farPlan);
+            }
+            else {
+                projection = glm::perspective(glm::radians(m_sceneSettings.camera.fov),
+                    aspect,
+                    m_sceneSettings.camera.nearPlan, m_sceneSettings.camera.farPlan); // (угол обзора, соотношение экрана, nearPlan, farPlan)
+            }
+
+            renderer->SetCamera(view, projection);
+
+            { MGE_PROFILE_SCOPE_N("RenderSystem"); if (renderSystem) renderSystem->Update(); }
+            { MGE_PROFILE_SCOPE_N("StateRender"); if (stateManager) stateManager->Render(*renderer); }
         }
 
-        // Настройка рендера для этого кадра
-        int fbWidth, fbHeight;
-        glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
-        glViewport(0, 0, fbWidth, fbHeight);
-
-        float aspect = (fbHeight > 0)
-            ? static_cast<float>(fbWidth) / static_cast<float>(fbHeight)
-            : 1.0f;
-
-        renderer->Clear(
-            m_sceneSettings.background.r,
-            m_sceneSettings.background.g,
-            m_sceneSettings.background.b,
-            m_sceneSettings.background.a
-        );
-
-        glm::mat4 view = glm::lookAt(
-            m_sceneSettings.camera.position,
-            m_sceneSettings.camera.target,
-            m_sceneSettings.camera.up
-        );
-
-        glm::mat4 projection;
-        if (m_sceneSettings.camera.projection == ProjectionType::Orthographic) {
-            float halfH = m_sceneSettings.camera.orthoSize;
-            float halfW = halfH * aspect;
-            // ortho - это матрица, которая создает параллепипед с 4 аргументами: лева, права, вверх, низ, nearPlan, farPlan
-            projection = glm::ortho(-halfW, halfW, -halfH, halfH, m_sceneSettings.camera.nearPlan, m_sceneSettings.camera.farPlan);
-        }
-        else {
-            projection = glm::perspective(glm::radians(m_sceneSettings.camera.fov),
-                aspect,
-                m_sceneSettings.camera.nearPlan, m_sceneSettings.camera.farPlan); // (угол обзора, соотношение экрана, nearPlan, farPlan)
-        }
-
-        renderer->SetCamera(view, projection);
-
-        // Отрисовка через Ecs
-        if (renderSystem) {
-            renderSystem->Update();
-        }
-
-        if (stateManager) {
-            stateManager->Render(*renderer);
-        }
-
-        renderer->SwapBuffers();
+        { MGE_PROFILE_SCOPE_N("Swap"); renderer->SwapBuffers(); }
+        MGE_PROFILE_FRAME();
     }
     Logger::Info("Exited main loop");
 }

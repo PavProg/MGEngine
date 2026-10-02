@@ -5,6 +5,7 @@
 #include "render/IRenderAdapter.hpp"
 #include "MeshLoader.hpp"
 #include "TextureLoader.hpp" 
+#include "core/profiler.hpp"
 
 // instantiation шаблона
 template<typename T>
@@ -79,25 +80,33 @@ std::shared_ptr<Resource<T>> ResourceManager::LoadAsync(const std::string& path)
 	m_queue.Submit([this, path, weakRes]() {
 		if constexpr (std::is_same_v<T, Mesh>) {
 			auto data = std::make_shared<MeshData>();
+			MGE_PROFILE_SCOPE_N("ParseMesh");
+			MGE_PROFILE_TEXT(path.c_str(), path.size());
 			bool ok = MeshLoader::ParseToData(path, *data);
 			m_queue.PushFinalize([this, weakRes, data, ok]() {
 				auto r = weakRes.lock();
 				if (!r) return;
 				if (!ok) { r->state = ResourceState::Failed; return; }
 				r->data.cpuData = std::move(*data);
+				MGE_PROFILE_SCOPE_N("UploadMesh");
 				r->data.gpu = m_renderer.UploadMesh(r->data.cpuData);
+				std::error_code ec;
+				r->lastModified = std::filesystem::last_write_time(r->path, ec);
 				r->state = ResourceState::Ready;
 				Logger::Info("Async: mesh ready " + r->path);
 				});
 		}
 		else if constexpr (std::is_same_v<T, Texture>) {
 			auto data = std::make_shared<TextureData>();
+			MGE_PROFILE_SCOPE_N("ParseTexture");
+			MGE_PROFILE_TEXT(path.c_str(), path.size());
 			bool ok = TextureLoader::ParseToData(path, *data);
 			m_queue.PushFinalize([this, weakRes, data, ok]() {
 				auto r = weakRes.lock();
 				if (!r) return;
 				if (!ok) { r->state = ResourceState::Failed; return; }
 				r->data.cpuData = std::move(*data);
+				MGE_PROFILE_SCOPE_N("UploadTexture");
 				r->data.gpu = m_renderer.UploadTexture(r->data.cpuData);
 				r->state = ResourceState::Ready;
 				Logger::Info("Async: texture ready " + r->path);

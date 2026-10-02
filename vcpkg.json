@@ -1,8 +1,10 @@
 {
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
   "name": "mygameengine",
   "version": "1.0.0",
   "dependencies": [
     "glfw3",
-    "glm"
+    "glm",
+    { "name": "tracy", "features": ["on-demand"] }
   ]
 }

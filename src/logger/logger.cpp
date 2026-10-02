@@ -3,9 +3,12 @@
 #include <chrono>
 #include <ctime>
 #include <iomanip>
+#include <mutex>
+#include "core/profiler.hpp"
 
 bool Logger::s_initialized = false;
 std::ofstream Logger::s_file;
+static std::mutex s_logMutex;
 
 void Logger::Init(const std::string& filename) {
     if (s_initialized) return;
@@ -28,6 +31,7 @@ void Logger::ShutDown() {
 }
 
 void Logger::Log(LogLevel level, const std::string& message) {
+    std::lock_guard<std::mutex> lock(s_logMutex);
     if (!s_initialized) return;
     std::string levelStr;
     switch(level) {
@@ -36,6 +40,8 @@ void Logger::Log(LogLevel level, const std::string& message) {
         case LogLevel::Error: levelStr = "ERROR"; break;
     }
     std::string formatted = "[" + GetCurrentTime() + "][" + levelStr + "] " + message;
+
+    MGE_PROFILE_MESSAGE(formatted.c_str(), formatted.size());
 
     // std::cout << formatted << std::endl;
 

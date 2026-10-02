@@ -36,6 +36,13 @@ set(SOURCES
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 
+option(MGE_ENABLE_PROFILER "Профилирование через Tracy" ON)
+
+if(MGE_ENABLE_PROFILER)
+    find_package(Tracy CONFIG REQUIRED)
+    target_link_libraries(${PROJECT_NAME} PRIVATE Tracy::TracyClient)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE MGE_PROFILER_ENABLED)
+endif()
 
 if(APPLE)
     target_include_directories(${PROJECT_NAME} PRIVATE /usr/local/include)

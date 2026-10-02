@@ -33,6 +33,13 @@
         "lhs": "${hostSystemName}",
         "rhs": "Windows"
       }
+    },
+    {
+      "name": "windows-x64-profile",
+      "displayName": "Windows x64 Profile (RelWithDebInfo)",
+      "inherits": "windows-x64-release",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
     }
   ],
   "buildPresets": [
@@ -43,6 +50,10 @@
     {
       "name": "windows-x64-release",
       "configurePreset": "windows-x64-release"
+    },
+    {
+      "name": "windows-x64-profile",
+      "configurePreset": "windows-x64-profile"
     }
   ]
 }
