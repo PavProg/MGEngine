@@ -30,6 +30,8 @@ compile_commands.json
 !CMakeLists.txt
 !CMakePresets.json
 
+!vcpkg-overlay/**/*.cmake
+
 # Объектные файлы, библиотеки, бинарники
 *.obj
 *.o
