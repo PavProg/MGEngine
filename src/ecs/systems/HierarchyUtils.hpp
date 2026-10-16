@@ -6,7 +6,11 @@
 
 // Пространство имен чтобы не загружать World
 namespace HierarchyUtils {
-    void SetParent(World& world, EntityId child, EntityId parent);
+	// parent = NULL_ENTITY - отвязать от родителя
+	bool SetParent(World& world, Entity child, Entity parent);
+
+	// Удалить сущность вместе со всеми потомками
+	void DestroyWithChildren(World& world, Entity entity);
 }
 
 #endif

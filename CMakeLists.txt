@@ -20,6 +20,9 @@ set(SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/states/StateManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/render/OpenGLAdapter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/World.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/CommandBuffer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/SystemScheduler.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/TransformSystem.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/RenderSystem.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/AnimationSystem.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/HierarchyUtils.cpp
@@ -31,7 +34,7 @@ set(SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/ShaderLoader.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/StbImage.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/TinyObjLoader.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/PhysicsSystem.cpp
+    # PhysicsSystem.cpp временно исключен: заменим физ. движком
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES})

@@ -3,9 +3,8 @@
 
 #include <memory>
 #include "render/IRenderAdapter.hpp"
-#include "ecs/systems/RenderSystem.hpp"
-#include "ecs/systems/AnimationSystem.hpp"
-#include "ecs/systems/PhysicsSystem.hpp"
+#include "ecs/World.hpp"
+#include "ecs/SystemScheduler.hpp"
 #include "scene/SceneSettings.hpp"
 #include "resources/ResourceManager.hpp"
 
@@ -28,12 +27,11 @@ class Application {
         std::unique_ptr<StateManager> stateManager;
         std::unique_ptr<IRenderAdapter> renderer;
         std::unique_ptr<World> world;
-        std::unique_ptr<RenderSystem> renderSystem;
-        std::unique_ptr<AnimationSystem> animationSystem;
-        std::unique_ptr<PhysicsSystem> physicsSystem;
+        std::unique_ptr<SystemScheduler> scheduler;     // все ECS-системы живут здесь
 
         std::unique_ptr<ResourceManager> resourceManager;
 
+        void RegisterComponents();
         void CreateDemoLoadedEntities();
 
         SceneSettings m_sceneSettings;

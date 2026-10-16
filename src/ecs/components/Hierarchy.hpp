@@ -4,9 +4,10 @@
 #include "ecs/Entity.hpp"
 #include <vector>
 
+// менять ТОЛЬКО через HierarchyUtils, иначе parent и children разойдутся
 struct Hierarchy {
-    EntityId parent = INVALID_ID;
-    std::vector<EntityId> children;
+    Entity parent = NULL_ENTITY;
+    std::vector<Entity> children;
 };
 
 #endif

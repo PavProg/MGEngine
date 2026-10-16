@@ -20,7 +20,7 @@ namespace detail {
 
 template<typename T>
 ComponentTypeId GetComponentTypeId() {
-	return detail::ComponentTypeIdImpl<std:::remove_cv_t<T>>();
+	return detail::ComponentTypeIdImpl<std::remove_cv_t<T>>();
 }
 
 #endif
