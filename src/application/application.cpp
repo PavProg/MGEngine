@@ -13,12 +13,15 @@
 #include "render/OpenGLAdapter.hpp"
 
 #include "ecs/World.hpp"
+#include "ecs/SystemScheduler.hpp"
 #include "ecs/components/Transform.hpp"
+#include "ecs/components/WorldTransform.hpp"
 #include "ecs/components/Tag.hpp"
 #include "ecs/components/MeshRenderer.hpp"
+#include "ecs/components/Hierarchy.hpp"
 #include "ecs/systems/RenderSystem.hpp"
 #include "ecs/systems/AnimationSystem.hpp"
-#include "ecs/components/Hierarchy.hpp"
+#include "ecs/systems/TransformSystem.hpp"
 #include "ecs/systems/HierarchyUtils.hpp"
 
 #include "scene/SceneLoader.hpp"
@@ -27,9 +30,6 @@
 #include "resources/Mesh.hpp"
 #include "resources/Texture.hpp"
 #include "resources/ShaderProgram.hpp"
-
-#include "ecs/components/Collider.hpp"
-#include "ecs/components/Rigidbody.hpp"
 
 #include "core/profiler.hpp"
 
@@ -92,13 +92,15 @@ bool Application::Init(int width, int height, const char* title) {
     resourceManager->StartAsync(2);
 
     world = std::make_unique<World>();
-    Logger::Info("Build Marker v2: creating systems");
-    physicsSystem = std::make_unique<PhysicsSystem>(*world);
-    Logger::Info("PhysicsSystem created");
-    renderSystem = std::make_unique<RenderSystem>(*world, *renderer);
-    Logger::Info("RenderSystem created");
-    animationSystem = std::make_unique<AnimationSystem>(*world);
-    Logger::Info("AnimationSystem created");
+    RegisterComponents();
+
+    // Фаза каждой системы задана в ней самой (GetPhase)
+    // Физика временно отключена: ее заменит физ. движок
+    scheduler = std::make_unique<SystemScheduler>(*world);
+    scheduler->AddSystem<AnimationSystem>();
+    scheduler->AddSystem<TransformSystem>();
+    scheduler->AddSystem<RenderSystem>(*renderer);
+    Logger::Info("ECS systems created");
 
     if (!SceneLoader::Load("assets/scenes/test_scene.json", *world, m_sceneSettings)) {
         Logger::Error("Failed to load scene; using empty world");
@@ -128,6 +130,8 @@ void Application::Run() {   // Внутри разметка под tracy. Ра�
         if (realDelta > 0.25f) realDelta = 0.25f;
 
         { MGE_PROFILE_SCOPE_N("PollEvents"); glfwPollEvents(); }
+        // Ввод - раз в кадр отрисовки (повороту камеры мышью нужна частота монитора)
+        scheduler->RunPhase(UpdatePhase::Input, realDelta);
         { MGE_PROFILE_SCOPE_N("PumpUploads"); if (resourceManager) resourceManager->PumpUploads(); }
 
         {
@@ -150,9 +154,11 @@ void Application::Run() {   // Внутри разметка под tracy. Ра�
             while (m_simAccumulator >= SIM_STEP) {
                 MGE_PROFILE_SCOPE_N("SimStep");
                     { MGE_PROFILE_SCOPE_N("StateLogic"); if (stateManager) stateManager->Update(SIM_STEP); }
-                    { MGE_PROFILE_SCOPE_N("Physics"); if (physicsSystem) physicsSystem->Update(SIM_STEP); }
-                    { MGE_PROFILE_SCOPE_N("Animation"); if (animationSystem) animationSystem->Update(SIM_STEP); }
-                    
+                    scheduler->RunPhase(UpdatePhase::GameLogic, SIM_STEP);
+                    scheduler->RunPhase(UpdatePhase::Animation, SIM_STEP);
+                    scheduler->RunPhase(UpdatePhase::Physics, SIM_STEP);
+                    scheduler->RunPhase(UpdatePhase::PostPhysics, SIM_STEP);
+
                     m_simAccumulator -= SIM_STEP;
                     ++simSteps;
             }
@@ -198,7 +204,10 @@ void Application::Run() {   // Внутри разметка под tracy. Ра�
 
             renderer->SetCamera(view, projection);
 
-            { MGE_PROFILE_SCOPE_N("RenderSystem"); if (renderSystem) renderSystem->Update(); }
+            // Мировые матрицы -> звук -> отрисовка (раз в кадр)
+            scheduler->RunPhase(UpdatePhase::Transform, realDelta);
+            scheduler->RunPhase(UpdatePhase::Audio, realDelta);
+            scheduler->RunPhase(UpdatePhase::Render, realDelta);
             { MGE_PROFILE_SCOPE_N("StateRender"); if (stateManager) stateManager->Render(*renderer); }
         }
 
@@ -206,6 +215,15 @@ void Application::Run() {   // Внутри разметка под tracy. Ра�
         MGE_PROFILE_FRAME();
     }
     Logger::Info("Exited main loop");
+}
+
+// Каждый тип компонента регистрируется один раз, до создания сущностей
+void Application::RegisterComponents() {
+    world->RegisterComponent<Transform>();
+    world->RegisterComponent<WorldTransform>();
+    world->RegisterComponent<Hierarchy>();
+    world->RegisterComponent<MeshRenderer>();
+    world->RegisterComponent<Tag>();
 }
 
 void Application::CreateDemoLoadedEntities() {
@@ -220,14 +238,16 @@ void Application::CreateDemoLoadedEntities() {
     }
 
     // Спавним 3 сущности
+    // Rigidbody/Collider убраны вместе с физикой (вернутся с физ. движком)
     for (int i = 0; i < 2; ++i) {
-        EntityId e = world->CreateEntity();
+        Entity e = world->CreateEntity();
 
         Transform t{};
         t.position = glm::vec3(-3.0f + i * 3.0f, -3.0f, 0.0f);
         t.rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
         t.scale = glm::vec3(2.0f);
         world->AddComponent<Transform>(e, t);
+        world->AddComponent<WorldTransform>(e, WorldTransform{});
 
         MeshRenderer mr{};
         mr.primitiveType = PrimitiveType::None;
@@ -238,26 +258,17 @@ void Application::CreateDemoLoadedEntities() {
         world->AddComponent<MeshRenderer>(e, mr);
 
         world->AddComponent<Tag>(e, { "LoadedQuad_" + std::to_string(i) });
-
-        Rigidbody rb{};
-        rb.velocity = glm::vec3(0.0f, 0.0f, 0.0f);
-        rb.useGravity = false;
-        world->AddComponent<Rigidbody>(e, rb);
-
-        Collider col{};
-        col.type = ColliderType::Box;
-        col.halfExtents = glm::vec3(0.5f, 0.5f, 0.5f);
-        world->AddComponent<Collider>(e, col);
     }
 
     for (int i = 0; i < 1; ++i) {
-        EntityId e = world->CreateEntity();
+        Entity e = world->CreateEntity();
 
         Transform t{};
         t.position = glm::vec3(-3.0f + i * 3.0f, -3.0f, 0.0f);
         t.rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
         t.scale = glm::vec3(2.0f);
         world->AddComponent<Transform>(e, t);
+        world->AddComponent<WorldTransform>(e, WorldTransform{});
 
         MeshRenderer mr{};
         mr.primitiveType = PrimitiveType::None;
@@ -268,16 +279,6 @@ void Application::CreateDemoLoadedEntities() {
         world->AddComponent<MeshRenderer>(e, mr);
 
         world->AddComponent<Tag>(e, { "LoadedQuad_" + std::to_string(i) });
-
-        Rigidbody rb{};
-        rb.velocity = glm::vec3(0.0f, 0.0f, 0.0f);
-        rb.useGravity = false;
-        world->AddComponent<Rigidbody>(e, rb);
-
-        Collider col{};
-        col.type = ColliderType::Box;
-        col.halfExtents = glm::vec3(0.5f, 0.5f, 0.5f);
-        world->AddComponent<Collider>(e, col);
     }
 
     Logger::Info("Demo: 3 entities sharing one mesh + one texture + one shader");
@@ -289,9 +290,8 @@ void Application::Shutdown() {
     // 1. Сначала потоки
     if (resourceManager) resourceManager->StopAsync();
 
-    // 2. ECS
-    animationSystem.reset();
-    renderSystem.reset();
+    // 2. ECS: системы раньше мира (они держат ссылки на World и рендер)
+    scheduler.reset();
     world.reset();
 
     // 3. Менеджер

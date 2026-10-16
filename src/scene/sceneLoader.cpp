@@ -80,8 +80,8 @@ namespace SceneLoader {
 		}
 
 		// Считать настройки сцены
-		if (root.contains("SceneSettings"))
-			ParseSceneSettings(root["SceneSettings"], settings);
+		if (root.contains("sceneSettings"))
+			ParseSceneSettings(root["sceneSettings"], settings);
 
 		// Подготовить реестр
 		const ComponentRegistry registry = ComponentRegistry::CreateDefault();
@@ -92,11 +92,11 @@ namespace SceneLoader {
 		}
 
 		// 1. Создание сущностей и компонентов
-		std::unordered_map<std::string, EntityId> idMap;
+		std::unordered_map<std::string, Entity> idMap;
 
 		for (const auto& entJson : root["entities"]) {
 			std::string id = entJson.value("id", std::string{});
-			EntityId e = world.CreateEntity();
+			Entity e = world.CreateEntity();
 			if (!id.empty()) idMap[id] = e;
 
 			if (entJson.contains("components") && entJson["components"].is_object()) {

@@ -4,6 +4,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include "ecs/components/Transform.hpp"
+#include "ecs/components/WorldTransform.hpp"
 #include "ecs/components/Tag.hpp"
 #include "ecs/components/MeshRenderer.hpp"
 #include "ecs/components/Hierarchy.hpp"
@@ -39,15 +40,17 @@ namespace {
 		);
 	}
 
-	void LoadTransform(World& world, EntityId e, const json& j) {
+	void LoadTransform(World& world, Entity e, const json& j) {
 		Transform t{};
 		if (j.contains("position")) t.position = ReadVec3(j["position"], t.position);
 		if (j.contains("rotation")) t.rotation = ReadQuat(j["rotation"], t.rotation);
 		if (j.contains("scale")) t.scale = ReadVec3(j["scale"], t.scale);
 		world.AddComponent<Transform>(e, t);
+		// Мировую матрицу посчитает TransformSystem - добавляем всегда вместе с Transform
+		world.AddComponent<WorldTransform>(e, WorldTransform{});
 	}
 
-	void LoadTag(World& world, EntityId e, const json& j) {
+	void LoadTag(World& world, Entity e, const json& j) {
 		Tag t{};
 		if (j.contains("name")) t.name = j["name"].get<std::string>();
 		world.AddComponent<Tag>(e, t);
@@ -61,7 +64,7 @@ namespace {
 		return PrimitiveType::Triangle;
 	}
 
-	void LoadMeshRenderer(World& world, EntityId e, const json& j) {
+	void LoadMeshRenderer(World& world, Entity e, const json& j) {
 		MeshRenderer m{};
 		if (j.contains("primitive")) 
 			m.primitiveType = ParsePrimitive(j["primitive"].get<std::string>());
@@ -70,7 +73,7 @@ namespace {
 		world.AddComponent<MeshRenderer>(e, m);
 	}
 
-	void LoadHierarchy(World& world, EntityId e, const json&) {
+	void LoadHierarchy(World& world, Entity e, const json&) {
 		if (!world.HasComponent<Hierarchy>(e))
 			world.AddComponent<Hierarchy>(e, Hierarchy{});
 	}
@@ -82,7 +85,7 @@ void ComponentRegistry::Register(const std::string& name, Loader loader) {
 	m_loaders[name] = std::move(loader);
 }
 
-bool ComponentRegistry::Load(const std::string& name, World& world, EntityId entity, const json& data) const {
+bool ComponentRegistry::Load(const std::string& name, World& world, Entity entity, const json& data) const {
 	auto it = m_loaders.find(name);
 	if (it == m_loaders.end()) {
 		Logger::Warning("Unknown component type in scene: " + name);

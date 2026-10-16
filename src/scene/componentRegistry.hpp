@@ -11,11 +11,11 @@
 
 class ComponentRegistry {
 public:
-	using Loader = std::function<void(World&, EntityId, const nlohmann::json&)>;
-	
+	using Loader = std::function<void(World&, Entity, const nlohmann::json&)>;
+
 	void Register(const std::string& name, Loader loader);
 
-	bool Load(const std::string& name, World& world, EntityId entity, const nlohmann::json& data) const;
+	bool Load(const std::string& name, World& world, Entity entity, const nlohmann::json& data) const;
 
 	static ComponentRegistry CreateDefault();
 private:
