@@ -8,6 +8,8 @@
 #include "scene/SceneSettings.hpp"
 #include "resources/ResourceManager.hpp"
 
+#include "application/BenchConfig.hpp"
+
 struct GLFWwindow;
 class StateManager;
 
@@ -16,7 +18,7 @@ class Application {
         Application();
         ~Application();
 
-        bool Init(int width, int height, const char* title);
+        bool Init(int width, int height, const char* title, const BenchConfig& bench = {});
         void Run();
         void Shutdown();
 

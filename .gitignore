@@ -6,6 +6,7 @@ bin/
 lib/
 Debug/
 Release/
+assets/bench/
 
 # Visual Studio / Rider / VSCode IDE
 .vs/

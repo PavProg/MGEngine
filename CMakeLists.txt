@@ -74,10 +74,12 @@ elseif(WIN32)
     # --- Windows (vcpkg + MSVC / MinGW) ---
     find_package(glfw3          CONFIG REQUIRED)
     find_package(glm            CONFIG REQUIRED)
+    find_package(enkiTS         CONFIG REQUIRED)
 
     target_link_libraries(${PROJECT_NAME} PRIVATE
         glfw
         glm::glm
+        enkiTS::enkiTS
         opengl32
         gdi32
     )
@@ -97,7 +99,7 @@ else()
 endif()
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
         "${CMAKE_SOURCE_DIR}/assets"
         "$<TARGET_FILE_DIR:${PROJECT_NAME}>/assets"
     COMMENT "Copying assets to build directory"

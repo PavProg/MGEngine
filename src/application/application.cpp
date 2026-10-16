@@ -40,7 +40,7 @@ Application::~Application() {
     Shutdown();
 }
 
-bool Application::Init(int width, int height, const char* title) {
+bool Application::Init(int width, int height, const char* title, const BenchConfig& bench) {
 
     Logger::Init("game.log");
 
@@ -72,6 +72,7 @@ bool Application::Init(int width, int height, const char* title) {
         glfwTerminate();
         return false;
     }
+    glfwSwapInterval(bench.vsync ? 1 : 0);
 
     running = true;
     Logger::Info("Application initialized");

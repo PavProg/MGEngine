@@ -40,6 +40,12 @@ public:
 		m_finals.push(std::move(fin));
 	}
 
+	// Сколько готовых результатов ждут выгрузки на GPU (для графика в Tracy)
+	std::size_t PendingFinalizers() {
+		std::lock_guard<MGE_PROFILE_LOCK_TYPE(std::mutex)> lk(m_finMtx);
+		return m_finals.size();
+	}
+
 	void Pump(int maxPerFrame = 4) {
 		for (int i = 0; i < maxPerFrame; ++i) {
 			std::function<void()> fin;
