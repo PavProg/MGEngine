@@ -34,6 +34,7 @@ set(SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/ShaderLoader.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/StbImage.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/TinyObjLoader.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core/JobSystem.cpp
     # PhysicsSystem.cpp временно исключен: заменим физ. движком
 )
 

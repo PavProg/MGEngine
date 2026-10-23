@@ -7,7 +7,7 @@ int main(int argc, char** argv) {
 	BenchConfig bench;
 	for (int i = 1; i < argc; ++i) {
 		std::string arg = argv[i];
-		if (arg.rfind("--bench", 0) == 0) bench.scenario = arg.substr(8);
+		if (arg.rfind("--bench=", 0) == 0) bench.scenario = arg.substr(8);
 		else if (arg == "--novsync") bench.vsync = false;
 	}
 
