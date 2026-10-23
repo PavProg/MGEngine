@@ -39,7 +39,7 @@ namespace TextureLoader {
 	}
 
 	bool ParseToData(const std::string& path, TextureData& out) {
-		stbi_set_flip_vertically_on_load(true);
+		stbi_set_flip_vertically_on_load_thread(true);
 
 		int w, h, ch;
 		unsigned char* pixels = stbi_load(path.c_str(), &w, &h, &ch, 0);

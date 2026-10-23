@@ -1,38 +1,22 @@
 #ifndef LOAD_QUEUE_HPP
 #define LOAD_QUEUE_HPP
 
+#include <chrono>
+#include <functional>
 #include <queue>
 #include <mutex>
-#include <condition_variable>
-#include <thread>
-#include <vector>
-#include <functional>
-#include <atomic>
 
 #include "core/profiler.hpp"
-#include <string>
+#include "core/JobSystem.hpp"
 
+// Тяжелая часть работы уходит в джобы. Легкая с OpenGL (финализатор) ждет здесь, пока главный поток не закончит в Pump
 class LoadQueue {
 public:
-	void Start(int workers = 2) {
-		m_running = true;
-		for (int i = 0; i < workers; ++i)
-			m_threads.emplace_back([this, i] {
-				std::string name = "LoadWorker " + std::to_string(i);
-				MGE_PROFILE_THREAD(name.c_str());
-				WorkerLoop(); 
-			});
-	}
-	void Stop() {
-		{ std::lock_guard<MGE_PROFILE_LOCK_TYPE(std::mutex)> lk(m_jobMtx); m_running = false; }
-		m_jobCv.notify_all();
-		for (auto& t : m_threads) if (t.joinable()) t.join();
-		m_threads.clear();
-	}
-
-	void Submit(std::function<void()> job) {
-		{ std::lock_guard<MGE_PROFILE_LOCK_TYPE(std::mutex)> lk(m_jobMtx); m_jobs.push(std::move(job)); }
-		m_jobCv.notify_one();
+	void SetJobSystem(JobSystem* jobs) { m_jobs = jobs;  }
+	
+	void Submit(std::function<void()> job, JobPriority priority = JobPriority::Normal) {
+		if (m_jobs) m_jobs->Submit(std::move(job), priority);
+		else job();
 	}
 
 	void PushFinalize(std::function<void()> fin) {
@@ -40,14 +24,11 @@ public:
 		m_finals.push(std::move(fin));
 	}
 
-	// Сколько готовых результатов ждут выгрузки на GPU (для графика в Tracy)
-	std::size_t PendingFinalizers() {
-		std::lock_guard<MGE_PROFILE_LOCK_TYPE(std::mutex)> lk(m_finMtx);
-		return m_finals.size();
-	}
-
-	void Pump(int maxPerFrame = 4) {
-		for (int i = 0; i < maxPerFrame; ++i) {
+	// Главный поток. Выполняет финализаторы пока не кончится бюджет времени
+	void Pump(double budgetMs) {
+		using Clock = std::chrono::steady_clock;
+		const auto start = Clock::now();
+		for (;;) {
 			std::function<void()> fin;
 			{
 				std::lock_guard<MGE_PROFILE_LOCK_TYPE(std::mutex)> lk(m_finMtx);
@@ -56,30 +37,30 @@ public:
 				m_finals.pop();
 			}
 			fin();
-		}
-	}
-private:
-	void WorkerLoop() {
-		for (;;) {
-			std::function<void()> job;
-			{
-				std::unique_lock<MGE_PROFILE_LOCK_TYPE(std::mutex)> lk(m_jobMtx);
-				m_jobCv.wait(lk, [this]{ return !m_jobs.empty() || !m_running; });
-				if (!m_running && m_jobs.empty()) return;
-				job = std::move(m_jobs.front());
-				m_jobs.pop();
-			}
-			job();
+
+			const double elapsedMs = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+			if (elapsedMs >= budgetMs) return;
 		}
 	}
 
-	std::vector<std::thread> m_threads;
-	std::queue<std::function<void()>> m_jobs;
+	// Выбросить невыполненные финализаторы
+	void DropPendingFinalizers() {
+		std::lock_guard<MGE_PROFILE_LOCK_TYPE(std::mutex)> lk(m_finMtx);
+		std::queue<std::function<void()>>().swap(m_finals);	// меняем старую очередь на новую пустую, проще чистить.
+	}
+
+	// Для графика в трейси. Сколько готовых результатов ждут выгрузки на gpu
+	std::size_t PendingFinalizers() {
+		std::lock_guard<MGE_PROFILE_LOCK_TYPE(std::mutex)> lk(m_finMtx);
+		return m_finals.size();
+	}
+
+
+
+private:
+	JobSystem* m_jobs = nullptr;
 	std::queue<std::function<void()>> m_finals;
-	MGE_PROFILE_LOCKABLE(std::mutex, m_jobMtx);
 	MGE_PROFILE_LOCKABLE(std::mutex, m_finMtx);
-	std::condition_variable_any m_jobCv;
-	std::atomic<bool> m_running{ false };
 };
 
 #endif

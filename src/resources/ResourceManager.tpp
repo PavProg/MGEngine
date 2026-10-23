@@ -39,7 +39,7 @@ std::shared_ptr<Resource<T>> ResourceManager::Load(const std::string& path) {
 }
 
 template<typename T>
-std::shared_ptr<Resource<T>> ResourceManager::LoadAsync(const std::string& path) {
+std::shared_ptr<Resource<T>> ResourceManager::LoadAsync(const std::string& path, JobPriority priority) {
 	static_assert(std::is_same_v<T, Mesh> || std::is_same_v<T, Texture>,
 		"LoadAsync поддерживает только Mesh и Texture");
 
@@ -120,7 +120,7 @@ std::shared_ptr<Resource<T>> ResourceManager::LoadAsync(const std::string& path)
 				Logger::Info("Async: texture ready " + r->path);
 				});
 		}
-		});
+	}, priority);
 
 	return res;
 }

@@ -47,6 +47,8 @@ class Application {
 
         float m_hotReloadAccumulator = 0.0f;
         static constexpr float HOT_RELOAD_INTERVAL = 0.5f;
+        // Сколько главный поток тратит на выгрузку на Gpu за кадр
+        static constexpr double UPLOAD_BUDGET_MS = 3.0;
 
         // Режим замера
         enum class BenchPhase { Off, Warmup, Loading, Tail, Done };

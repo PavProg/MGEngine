@@ -50,7 +50,8 @@ bool Application::Init(int width, int height, const char* title, const BenchConf
     // Самой первой подсистемой и строго из главного потока:
     // поток, который вызвал Init, enkiTS считает потоком 0
     jobs = std::make_unique<JobSystem>();
-    jobs->Init();
+    const unsigned hw = std::thread::hardware_concurrency();
+    jobs->Init(hw > 2 ? hw - 2 : 1);
 
     if (!glfwInit()) {
         Logger::Error("Failed to initialize GLFW");
@@ -96,10 +97,9 @@ bool Application::Init(int width, int height, const char* title, const BenchConf
         return false;
     }
 
-    resourceManager = std::make_unique<ResourceManager>(*renderer);
+    resourceManager = std::make_unique<ResourceManager>(*renderer, *jobs);
 
     resourceManager->InitPlaceholders();
-    resourceManager->StartAsync(2);
 
     world = std::make_unique<World>();
     RegisterComponents();
@@ -150,7 +150,7 @@ void Application::Run() {   // Внутри разметка под tracy. Ра�
         UpdateBench(currentTime);
         // Ввод - раз в кадр отрисовки (повороту камеры мышью нужна частота монитора)
         scheduler->RunPhase(UpdatePhase::Input, realDelta);
-        { MGE_PROFILE_SCOPE_N("PumpUploads"); if (resourceManager) resourceManager->PumpUploads(); }
+        { MGE_PROFILE_SCOPE_N("PumpUploads"); if (resourceManager) resourceManager->PumpUploads(UPLOAD_BUDGET_MS); }
         if (jobs) {
             jobs->CollectFinished();
             MGE_PROFILE_PLOT("JobsInFlight", static_cast<int64_t>(jobs->GetJobsInFlight()));
@@ -254,8 +254,8 @@ void Application::RegisterComponents() {
 
 void Application::CreateDemoLoadedEntities() {
     // Загружаем 3 типа ресурсов
-    auto mesh = resourceManager->LoadAsync<Mesh>("assets/models/quad.obj");
-    auto texture = resourceManager->LoadAsync<Texture>("assets/textures/test.png");
+    auto mesh = resourceManager->LoadAsync<Mesh>("assets/models/quad.obj", JobPriority::High);
+    auto texture = resourceManager->LoadAsync<Texture>("assets/textures/test.png", JobPriority::High);
     auto shader = resourceManager->Load<ShaderProgram>("assets/shaders/model");
 
     if (!mesh || !texture || !shader) {
@@ -389,7 +389,7 @@ void Application::Shutdown() {
 
     // 1. Сначала потоки
     if (jobs) jobs->Shutdown();
-    if (resourceManager) resourceManager->StopAsync();
+    if (resourceManager) resourceManager->DropPendingUploads();
 
     // 2. ECS: системы раньше мира (они держат ссылки на World и рендер)
     scheduler.reset();
