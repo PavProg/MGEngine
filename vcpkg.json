@@ -5,6 +5,18 @@
   "dependencies": [
     "glfw3",
     "glm",
-    { "name": "tracy", "features": ["on-demand"] }
-  ]
+    "enkits",
+    "tracy"
+  ],
+  "features": {
+    "tracy-on-demand": {
+      "description": "Tracy пишет только пока подключён профайлер (повседневная отладка)",
+      "dependencies": [
+        {
+          "name": "tracy",
+          "features": [ "on-demand" ]
+        }
+      ]
+    }
+  }
 }

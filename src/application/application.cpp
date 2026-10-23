@@ -33,16 +33,24 @@
 
 #include "core/profiler.hpp"
 
-Application::Application() 
+#include <cstdio>
+
+Application::Application()
 : window(nullptr), running(false), lastFrameTime(0.0), stateManager(nullptr) {}
 
 Application::~Application() {
     Shutdown();
 }
 
-bool Application::Init(int width, int height, const char* title) {
+bool Application::Init(int width, int height, const char* title, const BenchConfig& bench) {
+    m_bench = bench;
 
     Logger::Init("game.log");
+
+    // Самой первой подсистемой и строго из главного потока:
+    // поток, который вызвал Init, enkiTS считает потоком 0
+    jobs = std::make_unique<JobSystem>();
+    jobs->Init();
 
     if (!glfwInit()) {
         Logger::Error("Failed to initialize GLFW");
@@ -72,6 +80,8 @@ bool Application::Init(int width, int height, const char* title) {
         glfwTerminate();
         return false;
     }
+    // 1 - ждать монитор (VSync), 0 - рисовать без ожидания (для замеров)
+    glfwSwapInterval(m_bench.vsync ? 1 : 0);
 
     running = true;
     Logger::Info("Application initialized");
@@ -108,6 +118,13 @@ bool Application::Init(int width, int height, const char* title) {
 
     CreateDemoLoadedEntities();
 
+    if (!m_bench.scenario.empty()) {
+        m_benchPhase = BenchPhase::Warmup;
+        m_benchT0 = glfwGetTime();
+        Logger::Info("BENCH: scenario " + m_bench.scenario
+            + (m_bench.vsync ? " (vsync on)" : " (vsync off)"));
+    }
+
     return true;
 }
 
@@ -130,9 +147,18 @@ void Application::Run() {   // Внутри разметка под tracy. Ра�
         if (realDelta > 0.25f) realDelta = 0.25f;
 
         { MGE_PROFILE_SCOPE_N("PollEvents"); glfwPollEvents(); }
+        UpdateBench(currentTime);
         // Ввод - раз в кадр отрисовки (повороту камеры мышью нужна частота монитора)
         scheduler->RunPhase(UpdatePhase::Input, realDelta);
         { MGE_PROFILE_SCOPE_N("PumpUploads"); if (resourceManager) resourceManager->PumpUploads(); }
+        if (jobs) {
+            jobs->CollectFinished();
+            MGE_PROFILE_PLOT("JobsInFlight", static_cast<int64_t>(jobs->GetJobsInFlight()));
+        }
+        if (resourceManager) {
+            MGE_PROFILE_PLOT("LoadsInFlight", static_cast<int64_t>(resourceManager->GetLoadsInFlight()));
+            MGE_PROFILE_PLOT("FinalizeQueue", static_cast<int64_t>(resourceManager->GetPendingFinalizers()));
+        }
 
         {
             MGE_PROFILE_SCOPE_N("HotReload");
@@ -284,15 +310,94 @@ void Application::CreateDemoLoadedEntities() {
     Logger::Info("Demo: 3 entities sharing one mesh + one texture + one shader");
 }
 
+// --- Режим замера ---
+
+void Application::StartBenchBatch() {
+    MGE_PROFILE_SCOPE_N("BenchSubmit");
+    const bool sync = (m_bench.scenario == "load-sync");
+    char path[64];
+    for (int i = 0; i < 24; ++i) {
+        std::snprintf(path, sizeof(path), "assets/bench/tex_%02d.png", i);
+        m_benchTextures.push_back(sync ? resourceManager->Load<Texture>(path)
+                                       : resourceManager->LoadAsync<Texture>(path));
+    }
+    for (int i = 0; i < 8; ++i) {
+        std::snprintf(path, sizeof(path), "assets/bench/mesh_%02d.obj", i);
+        m_benchMeshes.push_back(sync ? resourceManager->Load<Mesh>(path)
+                                     : resourceManager->LoadAsync<Mesh>(path));
+    }
+    Logger::Info("BENCH: batch submitted");   // логгер дублирует сообщение в Tracy
+}
+
+bool Application::BenchBatchDone() const {
+    auto loading = [](const auto& r) { return r && r->state.load() == ResourceState::Loading; };
+    for (const auto& t : m_benchTextures) if (loading(t)) return false;
+    for (const auto& m : m_benchMeshes)   if (loading(m)) return false;
+    return true;
+}
+
+// Прогрев -> пачка загрузок -> ожидание готовности -> "хвост" -> выход.
+// Время по часам (glfwGetTime), а не по кадрам: прогоны совпадают при любом FPS.
+void Application::UpdateBench(double now) {
+    switch (m_benchPhase) {
+    case BenchPhase::Off:
+        return;
+
+    case BenchPhase::Warmup:
+        if (now - m_benchT0 < BENCH_WARMUP_S) return;
+        if (m_bench.scenario == "steady") {
+            m_benchPhase = BenchPhase::Tail;
+            m_benchTailStart = now;
+            return;
+        }
+        m_benchBatchStart = now;
+        StartBenchBatch();
+        m_benchPhase = BenchPhase::Loading;
+        return;
+
+    case BenchPhase::Loading:
+        if (m_bench.scenario == "load-exit" && now - m_benchBatchStart >= 0.1) {
+            Logger::Info("BENCH: exit requested with live loads");
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
+            m_benchPhase = BenchPhase::Done;
+        }
+        else if (BenchBatchDone()) {
+            Logger::Info("BENCH: batch done in "
+                + std::to_string((now - m_benchBatchStart) * 1000.0) + " ms");
+            m_benchPhase = BenchPhase::Tail;
+            m_benchTailStart = now;
+        }
+        return;
+
+    case BenchPhase::Tail: {
+        const double tail = (m_bench.scenario == "steady") ? BENCH_STEADY_S : BENCH_TAIL_S;
+        if (now - m_benchTailStart >= tail) {
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
+            m_benchPhase = BenchPhase::Done;
+        }
+        return;
+    }
+
+    case BenchPhase::Done:
+        return;
+    }
+}
+
 void Application::Shutdown() {
+    MGE_PROFILE_SCOPE_N("Shutdown");
     Logger::Warning("Shutting down application");
 
     // 1. Сначала потоки
+    if (jobs) jobs->Shutdown();
     if (resourceManager) resourceManager->StopAsync();
 
     // 2. ECS: системы раньше мира (они держат ссылки на World и рендер)
     scheduler.reset();
     world.reset();
+
+    // Ресурсы замера освобождают GPU-объекты через рендер - отпускаем их, пока рендер жив
+    m_benchTextures.clear();
+    m_benchMeshes.clear();
 
     // 3. Менеджер
     resourceManager.reset();
@@ -310,6 +415,8 @@ void Application::Shutdown() {
     }
     glfwTerminate();
     running = false;
+
+    jobs.reset();
 
     Logger::ShutDown();
 }

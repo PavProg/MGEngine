@@ -21,6 +21,9 @@ std::shared_ptr<Resource<T>> ResourceManager::Load(const std::string& path) {
 		typeCache.erase(it);
 	}
 
+	// Синхронная загрузка в вызывающем (обычно главном) потоке - для замеров фриза
+	MGE_PROFILE_SCOPE_N("LoadSync");
+	MGE_PROFILE_TEXT(path.c_str(), path.size());
 	std::shared_ptr<Resource<T>> resource = LoadImpl<T>(path);
 	if (!resource) {
 		Logger::Error("ResourceManager: failed to load " + path);
@@ -77,6 +80,7 @@ std::shared_ptr<Resource<T>> ResourceManager::LoadAsync(const std::string& path)
 	typeCache[path] = std::weak_ptr<void>(std::static_pointer_cast<void>(res));
 
 	std::weak_ptr<Resource<T>> weakRes = res;
+	++m_inFlight;	// загрузка "в полёте"; уменьшается первой строкой финализатора
 	m_queue.Submit([this, path, weakRes]() {
 		if constexpr (std::is_same_v<T, Mesh>) {
 			auto data = std::make_shared<MeshData>();
@@ -84,6 +88,7 @@ std::shared_ptr<Resource<T>> ResourceManager::LoadAsync(const std::string& path)
 			MGE_PROFILE_TEXT(path.c_str(), path.size());
 			bool ok = MeshLoader::ParseToData(path, *data);
 			m_queue.PushFinalize([this, weakRes, data, ok]() {
+				--m_inFlight;	// первой строкой: ниже есть ранние return
 				auto r = weakRes.lock();
 				if (!r) return;
 				if (!ok) { r->state = ResourceState::Failed; return; }
@@ -102,12 +107,15 @@ std::shared_ptr<Resource<T>> ResourceManager::LoadAsync(const std::string& path)
 			MGE_PROFILE_TEXT(path.c_str(), path.size());
 			bool ok = TextureLoader::ParseToData(path, *data);
 			m_queue.PushFinalize([this, weakRes, data, ok]() {
+				--m_inFlight;	// первой строкой: ниже есть ранние return
 				auto r = weakRes.lock();
 				if (!r) return;
 				if (!ok) { r->state = ResourceState::Failed; return; }
 				r->data.cpuData = std::move(*data);
 				MGE_PROFILE_SCOPE_N("UploadTexture");
 				r->data.gpu = m_renderer.UploadTexture(r->data.cpuData);
+				std::error_code ec;
+				r->lastModified = std::filesystem::last_write_time(r->path, ec);
 				r->state = ResourceState::Ready;
 				Logger::Info("Async: texture ready " + r->path);
 				});

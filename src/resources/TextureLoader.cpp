@@ -2,6 +2,7 @@
 #include "ResourceManager.hpp"
 #include "render/IRenderAdapter.hpp"
 #include "logger/logger.hpp"
+#include "core/profiler.hpp"
 
 #include "stb/stb_image.h"
 
@@ -68,6 +69,7 @@ ResourceManager::LoadImpl<Texture>(const std::string& path) {
 }
 
 void ResourceManager::ReloadModifiedTextures() {
+	MGE_PROFILE_SCOPE_N("HotReloadTextures");
 	auto typeIt = m_caches.find(std::type_index(typeid(Texture)));
 	if (typeIt == m_caches.end()) return;
 
