@@ -106,7 +106,8 @@ bool Application::Init(int width, int height, const char* title, const BenchConf
 
     // Фаза каждой системы задана в ней самой (GetPhase)
     // Физика временно отключена: ее заменит физ. движок
-    scheduler = std::make_unique<SystemScheduler>(*world);
+    scheduler = std::make_unique<SystemScheduler>(*world, *jobs);
+
     scheduler->AddSystem<AnimationSystem>();
     scheduler->AddSystem<TransformSystem>();
     scheduler->AddSystem<RenderSystem>(*renderer);
@@ -256,7 +257,7 @@ void Application::CreateDemoLoadedEntities() {
     // Загружаем 3 типа ресурсов
     auto mesh = resourceManager->LoadAsync<Mesh>("assets/models/quad.obj", JobPriority::High);
     auto texture = resourceManager->LoadAsync<Texture>("assets/textures/test.png", JobPriority::High);
-    auto shader = resourceManager->Load<ShaderProgram>("assets/shaders/model");
+    auto shader = resourceManager->Load<ShaderProgram>("assets/shaders/model"); // TODO LoadAsync
 
     if (!mesh || !texture || !shader) {
         Logger::Error("Demo: one of the resources failed to load");

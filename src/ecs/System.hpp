@@ -58,6 +58,11 @@ public:
 	virtual UpdatePhase GetPhase() const = 0;
 	virtual SystemAccess GetAccess() const = 0;
 
+	// Проверка должна ли система выполнятся в главном потоке
+	virtual bool RequiresMainThread() const {
+		return true;
+	}
+
 	// структурные изменения только через commands
 	virtual void Update(World& world, CommandBuffer& commands, float dt) = 0;
 };

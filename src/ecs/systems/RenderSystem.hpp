@@ -14,6 +14,10 @@ public:
 	UpdatePhase GetPhase() const override { return UpdatePhase::Render; }
 	SystemAccess GetAccess() const override;
 
+	bool RequiresMainThread() const override {
+		return true;
+	}
+
 	void Update(World& world, CommandBuffer& commands, float dt) override;
 private:
 	IRenderAdapter& m_renderer;

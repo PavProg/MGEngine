@@ -10,6 +10,10 @@ class AnimationSystem final : public ISystem {
         UpdatePhase GetPhase() const override { return UpdatePhase::Animation; }
         SystemAccess GetAccess() const override;
 
+        bool RequiresMainThread() const override {
+            return false;
+        }
+
         void Update(World& world, CommandBuffer& commands, float dt) override;
     private:
         float m_totalTime = 0.0f;
