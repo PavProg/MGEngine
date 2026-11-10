@@ -54,7 +54,8 @@ namespace {
 }
 
 namespace SceneLoader {
-	bool Load(const std::string& path, World& world, SceneSettings& settings) {
+	bool Load(const std::string& path, World& world, SceneSettings& settings,
+		ResourceManager* resources) {
 		// Открыть файл
 		std::ifstream file(path);
 		if (!file.is_open()) {
@@ -84,7 +85,7 @@ namespace SceneLoader {
 			ParseSceneSettings(root["sceneSettings"], settings);
 
 		// Подготовить реестр
-		const ComponentRegistry registry = ComponentRegistry::CreateDefault();
+		const ComponentRegistry registry = ComponentRegistry::CreateDefault(resources);
 
 		if (!root.contains("entities") || !root["entities"].is_array()) {
 			Logger::Warning("SceneLoader: no entities array in scene");

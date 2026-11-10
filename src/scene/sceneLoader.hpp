@@ -6,8 +6,11 @@
 #include "ecs/World.hpp"
 #include "scene/SceneSettings.hpp"
 
+class ResourceManager;
+
 namespace SceneLoader {
-	bool Load(const std::string& path, World& world, SceneSettings& settings);
+	bool Load(const std::string& path, World& world, SceneSettings& settings,
+		ResourceManager* resources = nullptr);
 }
 
 #endif

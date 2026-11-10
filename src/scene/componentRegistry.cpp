@@ -4,11 +4,17 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include "ecs/components/Transform.hpp"
+#include "ecs/components/FreeFlyCameraController.hpp"
 #include "ecs/components/WorldTransform.hpp"
 #include "ecs/components/Tag.hpp"
 #include "ecs/components/MeshRenderer.hpp"
 #include "ecs/components/Hierarchy.hpp"
 #include "logger/logger.hpp"
+#include "resources/ResourceManager.hpp"
+
+#include <cmath>
+#include <filesystem>
+#include <stdexcept>
 
 using nlohmann::json;
 
@@ -56,6 +62,17 @@ namespace {
 		world.AddComponent<Tag>(e, t);
 	}
 
+	void LoadFreeFlyCameraController(World& world, Entity e, const json& j) {
+		FreeFlyCameraController controller;
+		controller.enabled = j.value("enabled", controller.enabled);
+		controller.moveSpeed = j.value("moveSpeed", controller.moveSpeed);
+		controller.lookSensitivityDegrees = j.value("lookSensitivityDegrees", controller.lookSensitivityDegrees);
+		if (!std::isfinite(controller.moveSpeed) || controller.moveSpeed < 0.0f ||
+			!std::isfinite(controller.lookSensitivityDegrees) || controller.lookSensitivityDegrees < 0.0f)
+			throw std::invalid_argument("Invalid free-fly camera speed or sensitivity");
+		world.AddComponent<FreeFlyCameraController>(e, controller);
+	}
+
 	PrimitiveType ParsePrimitive(const std::string& s) {
 		if (s == "Triangle") return PrimitiveType::Triangle;
 		if (s == "Square") return PrimitiveType::Square;
@@ -64,12 +81,37 @@ namespace {
 		return PrimitiveType::Triangle;
 	}
 
-	void LoadMeshRenderer(World& world, Entity e, const json& j) {
+	void LoadMeshRenderer(World& world, Entity e, const json& j, ResourceManager* resources) {
 		MeshRenderer m{};
-		if (j.contains("primitive")) 
-			m.primitiveType = ParsePrimitive(j["primitive"].get<std::string>());
-		if (j.contains("color")) 
-			m.color = ReadVec4(j["color"], m.color);
+		if (j.contains("mesh") || j.contains("texture") || j.contains("shader")) {
+			if (j.contains("primitive"))
+				throw std::invalid_argument("MeshRenderer cannot specify both primitive and model resources");
+			if (!resources)
+				throw std::invalid_argument("Model resources require a ResourceManager");
+
+			const auto mesh = j.at("mesh").get<std::string>();
+			const auto texture = j.at("texture").get<std::string>();
+			const auto shader = j.at("shader").get<std::string>();
+			if (mesh.empty() || texture.empty() || shader.empty())
+				throw std::invalid_argument("MeshRenderer requires mesh, texture and shader paths");
+
+			for (const auto* path : { &mesh, &texture }) {
+				std::error_code error;
+				if (!std::filesystem::is_regular_file(*path, error))
+					Logger::Warning("MeshRenderer: using placeholder for " + *path);
+			}
+			m.primitiveType = PrimitiveType::None;
+			m.mesh = resources->LoadAsync<Mesh>(mesh);
+			m.texture = resources->LoadAsync<Texture>(texture);
+			m.shader = resources->Load<ShaderProgram>(shader);
+			if (j.contains("tint"))
+				m.tint = ReadVec4(j["tint"], m.tint);
+		} else {
+			if (j.contains("primitive"))
+				m.primitiveType = ParsePrimitive(j["primitive"].get<std::string>());
+			if (j.contains("color"))
+				m.color = ReadVec4(j["color"], m.color);
+		}
 		world.AddComponent<MeshRenderer>(e, m);
 	}
 
@@ -101,11 +143,14 @@ bool ComponentRegistry::Load(const std::string& name, World& world, Entity entit
 	}
 }
 
-ComponentRegistry ComponentRegistry::CreateDefault() {
+ComponentRegistry ComponentRegistry::CreateDefault(ResourceManager* resources) {
 	ComponentRegistry r;
 	r.Register("Transform", LoadTransform);
 	r.Register("Tag", LoadTag);
-	r.Register("MeshRenderer", LoadMeshRenderer);
+	r.Register("FreeFlyCameraController", LoadFreeFlyCameraController);
+	r.Register("MeshRenderer", [resources](World& world, Entity e, const json& data) {
+		LoadMeshRenderer(world, e, data, resources);
+	});
 	r.Register("Hierarchy", LoadHierarchy);
 	return r;
 }

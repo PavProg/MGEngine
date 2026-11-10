@@ -22,6 +22,8 @@ set(SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/World.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/CommandBuffer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/SystemScheduler.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/input/InputService.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/CameraControllerSystem.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/TransformSystem.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/RenderSystem.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/AnimationSystem.cpp
