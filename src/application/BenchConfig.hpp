@@ -7,6 +7,10 @@
 struct BenchConfig {
 	std::string scenario;
 	bool vsync = true;
+
+	bool IsTransformBench() const {
+		return scenario == "transform-serial" || scenario == "transform-parallel";
+	}
 };
 
 #endif

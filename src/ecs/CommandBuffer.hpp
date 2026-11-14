@@ -38,6 +38,8 @@ public:
 	void Flush(World& world);
 
 	bool IsEmpty() const;
+
+	void Clear();
 private:
 	using Command = std::function<void(World&)>;
 

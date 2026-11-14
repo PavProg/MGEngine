@@ -51,7 +51,7 @@ bool Application::Init(int width, int height, const char* title, const BenchConf
     // поток, который вызвал Init, enkiTS считает потоком 0
     jobs = std::make_unique<JobSystem>();
     const unsigned hw = std::thread::hardware_concurrency();
-    jobs->Init(hw > 2 ? hw - 2 : 1);
+    jobs->Init(m_bench.scenario == "transform-serial" ? 0u : (hw > 2 ? hw - 2 : 1u));
 
     if (!glfwInit()) {
         Logger::Error("Failed to initialize GLFW");
@@ -109,15 +109,27 @@ bool Application::Init(int width, int height, const char* title, const BenchConf
     scheduler = std::make_unique<SystemScheduler>(*world, *jobs);
 
     scheduler->AddSystem<AnimationSystem>();
-    scheduler->AddSystem<TransformSystem>();
+    scheduler->AddSystem<TransformSystem>(*jobs);
     scheduler->AddSystem<RenderSystem>(*renderer);
     Logger::Info("ECS systems created");
 
-    if (!SceneLoader::Load("assets/scenes/test_scene.json", *world, m_sceneSettings)) {
-        Logger::Error("Failed to load scene; using empty world");
+    if (m_bench.IsTransformBench()) {
+        constexpr std::size_t expectedCount = 50000;
+        if (!SceneLoader::Load("assets/bench/transform_scene.json", *world, m_sceneSettings) ||
+            world->GetAliveCount() != expectedCount ||
+            world->GetPool<Transform>().Size() != expectedCount ||
+            world->GetPool<WorldTransform>().Size() != expectedCount) {
+            Logger::Error("BENCH: expected 50000 transforms in assets/bench/transform_scene.json");
+            return false;
+        }
+        Logger::Info("BENCH: transform entities=" + std::to_string(expectedCount)
+            + " workers=" + std::to_string(jobs->GetThreadCount() - 1));
+    } else {
+        if (!SceneLoader::Load("assets/scenes/test_scene.json", *world, m_sceneSettings)) {
+            Logger::Error("Failed to load scene; using empty world");
+        }
+        CreateDemoLoadedEntities();
     }
-
-    CreateDemoLoadedEntities();
 
     if (!m_bench.scenario.empty()) {
         m_benchPhase = BenchPhase::Warmup;
@@ -346,9 +358,12 @@ void Application::UpdateBench(double now) {
 
     case BenchPhase::Warmup:
         if (now - m_benchT0 < BENCH_WARMUP_S) return;
-        if (m_bench.scenario == "steady") {
+        if (m_bench.scenario == "steady" || m_bench.IsTransformBench()) {
             m_benchPhase = BenchPhase::Tail;
             m_benchTailStart = now;
+            if (m_bench.IsTransformBench()) {
+                Logger::Info("BENCH: transform window begin");
+            }
             return;
         }
         m_benchBatchStart = now;
@@ -371,8 +386,12 @@ void Application::UpdateBench(double now) {
         return;
 
     case BenchPhase::Tail: {
-        const double tail = (m_bench.scenario == "steady") ? BENCH_STEADY_S : BENCH_TAIL_S;
+        const double tail = (m_bench.scenario == "steady" || m_bench.IsTransformBench())
+            ? BENCH_STEADY_S : BENCH_TAIL_S;
         if (now - m_benchTailStart >= tail) {
+            if (m_bench.IsTransformBench()) {
+                Logger::Info("BENCH: transform window end");
+            }
             glfwSetWindowShouldClose(window, GLFW_TRUE);
             m_benchPhase = BenchPhase::Done;
         }

@@ -11,13 +11,14 @@
 #include <limits>
 #include <stdexcept>
 
-void SystemScheduler::RunSystem(ISystem& system, float dt) {
+void SystemScheduler::RunSystem(SystemEntry& entry, float dt) {
 	MGE_PROFILE_SCOPE_N("System");
 
+	ISystem& system = *entry.system;
 	const char* name = system.GetName();
 	MGE_PROFILE_TEXT(name, std::strlen(name));
 
-	system.Update(m_world, m_commands, dt);
+	system.Update(m_world, *entry.commands, dt);
 }
 
 void SystemScheduler::ExecuteBatch(
@@ -37,7 +38,7 @@ void SystemScheduler::ExecuteBatch(
 
 	// Если одна система параллельная задача не нужна
 	if (count == 1) {
-		RunSystem(*systems[begin].system, dt);
+		RunSystem(systems[begin], dt);
 		return;
 	}
 
@@ -56,7 +57,7 @@ void SystemScheduler::ExecuteBatch(
 		) {
 			for (std::uint32_t offset = rangeBegin; offset < rangeEnd; ++offset) {
 				try {
-					RunSystem(*systems[begin + offset].system, dt);
+					RunSystem(systems[begin + offset], dt);
 
 				}
 				catch (...) {
@@ -96,7 +97,7 @@ void SystemScheduler::RunPhase(UpdatePhase phase, float dt) {
 		while (begin < systems.size()) {
 			// система из главного потока отдельно
 			if (systems[begin].mainThreadOnly) {
-				RunSystem(*systems[begin].system, dt);
+				RunSystem(systems[begin], dt);
 				++begin;
 				continue;
 			}
@@ -132,13 +133,20 @@ void SystemScheduler::RunPhase(UpdatePhase phase, float dt) {
 			begin = end;
 		}
 		m_world.UnlockStructure();
-		m_commands.Flush(m_world);
+		for (SystemEntry& entry : systems) {
+			entry.commands->Flush(m_world);
+		}
 
 		m_running = false;
 	}
 	catch (...) {
 		// Если ошибка служебные флаги выключить
 		m_world.UnlockStructure();
+		// убрать оставшиеся команды неудачной фазы
+		for (SystemEntry& entry : systems) {
+			entry.commands->Clear();
+		}
+
 		m_running = false;
 
 		throw;

@@ -47,7 +47,8 @@ public:
 		m_phases[phaseIndex].push_back(SystemEntry{
 			std::move(system),
 			std::move(access),
-			mainThreadOnly
+			mainThreadOnly,
+			std::make_unique<CommandBuffer>()
 		});
 
 		return result;
@@ -56,19 +57,17 @@ public:
 	// Выполнить системы фазы и затем применитьт отложенные команды
 	void RunPhase(UpdatePhase phase, float dt);
 
-	CommandBuffer& GetCommands() {
-		return m_commands;
-	}
 
 private:
 	struct SystemEntry {
 		std::unique_ptr<ISystem> system;
 		SystemAccess access;
 		bool mainThreadOnly;
+		std::unique_ptr<CommandBuffer> commands;
 	};
 
 	// Выполнить одну систему с разметкой Tracy
-	void RunSystem(ISystem& system, float dt);
+	void RunSystem(SystemEntry& entry, float dt);
 
 	// Выполнить совместимую пачку [begin, end) и дождаться
 	void ExecuteBatch(
@@ -85,7 +84,6 @@ private:
 
 	bool m_running = false;
 
-	CommandBuffer m_commands;
 	std::array<std::vector<SystemEntry>, static_cast<std::size_t>(UpdatePhase::Count)> m_phases;
 };
 

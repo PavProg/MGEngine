@@ -34,3 +34,8 @@ bool CommandBuffer::IsEmpty() const {
 	std::lock_guard<std::mutex> lock(m_mutex);
 	return m_commands.empty();
 }
+
+void CommandBuffer::Clear() {
+	std::lock_guard<std::mutex> lock(m_mutex);
+	m_commands.clear();
+}

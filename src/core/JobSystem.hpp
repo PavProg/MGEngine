@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -20,8 +21,8 @@ public:
 	JobSystem(const JobSystem&) = delete;
 	JobSystem& operator=(const JobSystem&) = delete;
 
-	// 0 - по числу ядер
-	void Init(uint32_t workerThreads = 0);
+	// Без аргумента используется настройка enkiTS. Ноль — только главный поток.
+	void Init(std::optional<uint32_t> workerThreads = std::nullopt);
 
 	// Отмена неначатых задач + ожидание тех что еще в работе
 	void Shutdown();

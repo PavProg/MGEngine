@@ -62,14 +62,14 @@ JobSystem::~JobSystem() {
 	Shutdown();
 }
 
-void JobSystem::Init(uint32_t workerThreads) {
+void JobSystem::Init(std::optional<uint32_t> workerThreads) {
 	assert(!m_initialized && "Job system: Init called twice");
 
 	// поток вызвавший Init становится главным
 	m_mainThread = std::this_thread::get_id();
 
 	enki::TaskSchedulerConfig config;
-	if (workerThreads > 0) config.numTaskThreadsToCreate = workerThreads;
+	if (workerThreads) config.numTaskThreadsToCreate = *workerThreads;
 	config.profilerCallbacks.threadStart = &OnWorkerStart;
 
 	m_scheduler->Initialize(config);
