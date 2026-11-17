@@ -2,11 +2,10 @@
 #define SCENE_SETTINGS_HPP
 
 #include <glm/glm.hpp>
+#include "ecs/Entity.hpp"
+#include "ecs/components/Camera.hpp"
 
-enum class ProjectionType {
-	Perspective,
-	Orthographic
-};
+
 
 struct CameraSettings {
 	ProjectionType projection = ProjectionType::Orthographic;
@@ -25,7 +24,8 @@ struct CameraSettings {
 
 struct SceneSettings {
 	glm::vec4 background = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-	CameraSettings camera;
+	CameraSettings camera; // Legacy version 1 import only
+	Entity activeCamera = NULL_ENTITY;
 };
 
 #endif

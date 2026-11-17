@@ -17,6 +17,9 @@
 #include "ecs/components/Transform.hpp"
 #include "ecs/components/WorldTransform.hpp"
 #include "ecs/components/Tag.hpp"
+#include "ecs/components/Camera.hpp"
+#include "ecs/components/FreeFlyCameraController.hpp"
+#include "ecs/systems/CameraControllerSystem.hpp"
 #include "ecs/components/MeshRenderer.hpp"
 #include "ecs/components/Hierarchy.hpp"
 #include "ecs/systems/RenderSystem.hpp"
@@ -108,16 +111,21 @@ bool Application::Init(int width, int height, const char* title, const BenchConf
     // Физика временно отключена: ее заменит физ. движок
     scheduler = std::make_unique<SystemScheduler>(*world, *jobs);
 
+    input = std::make_unique<InputService>(*window);
+    input->SetGameplayInputEnabled(true);
+    scheduler->AddSystem<CameraControllerSystem>(input->GetFrame(), m_cameraContext.activeCamera);
+    scheduler->AddSystem<CameraSystem>(*renderer, m_cameraContext);
     scheduler->AddSystem<AnimationSystem>();
     scheduler->AddSystem<TransformSystem>();
     scheduler->AddSystem<RenderSystem>(*renderer);
     Logger::Info("ECS systems created");
 
-    if (!SceneLoader::Load("assets/scenes/test_scene.json", *world, m_sceneSettings)) {
-        Logger::Error("Failed to load scene; using empty world");
+    if (!SceneLoader::Load("assets/scenes/camera_scene.json", *world, m_sceneSettings, resourceManager.get())) {
+        Logger::Error("Failed to load scene");
+        return false;
     }
 
-    CreateDemoLoadedEntities();
+    if (!SetActiveCamera(m_sceneSettings.activeCamera)) return false;
 
     if (!m_bench.scenario.empty()) {
         m_benchPhase = BenchPhase::Warmup;
@@ -147,7 +155,7 @@ void Application::Run() {   // Внутри разметка под tracy. Ра�
         // Защита от spiral of death
         if (realDelta > 0.25f) realDelta = 0.25f;
 
-        { MGE_PROFILE_SCOPE_N("PollEvents"); glfwPollEvents(); }
+        { MGE_PROFILE_SCOPE_N("PollEvents"); input->PollEvents(); }
         UpdateBench(currentTime);
         // Ввод - раз в кадр отрисовки (повороту камеры мышью нужна частота монитора)
         scheduler->RunPhase(UpdatePhase::Input, realDelta);
@@ -199,9 +207,8 @@ void Application::Run() {   // Внутри разметка под tracy. Ра�
             glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
             glViewport(0, 0, fbWidth, fbHeight);
 
-            float aspect = (fbHeight > 0)
-                ? static_cast<float>(fbWidth) / static_cast<float>(fbHeight)
-                : 1.0f;
+            m_cameraContext.framebufferWidth = fbWidth;
+            m_cameraContext.framebufferHeight = fbHeight;
 
             renderer->Clear(
                 m_sceneSettings.background.r,
@@ -210,31 +217,11 @@ void Application::Run() {   // Внутри разметка под tracy. Ра�
                 m_sceneSettings.background.a
             );
 
-            glm::mat4 view = glm::lookAt(
-                m_sceneSettings.camera.position,
-                m_sceneSettings.camera.target,
-                m_sceneSettings.camera.up
-            );
-
-            glm::mat4 projection;
-            if (m_sceneSettings.camera.projection == ProjectionType::Orthographic) {
-                float halfH = m_sceneSettings.camera.orthoSize;
-                float halfW = halfH * aspect;
-                // ortho - это матрица, которая создает параллепипед с 4 аргументами: лева, права, вверх, низ, nearPlan, farPlan
-                projection = glm::ortho(-halfW, halfW, -halfH, halfH, m_sceneSettings.camera.nearPlan, m_sceneSettings.camera.farPlan);
-            }
-            else {
-                projection = glm::perspective(glm::radians(m_sceneSettings.camera.fov),
-                    aspect,
-                    m_sceneSettings.camera.nearPlan, m_sceneSettings.camera.farPlan); // (угол обзора, соотношение экрана, nearPlan, farPlan)
-            }
-
-            renderer->SetCamera(view, projection);
-
             // Мировые матрицы -> звук -> отрисовка (раз в кадр)
             scheduler->RunPhase(UpdatePhase::Transform, realDelta);
+            scheduler->RunPhase(UpdatePhase::Camera, realDelta);
             scheduler->RunPhase(UpdatePhase::Audio, realDelta);
-            scheduler->RunPhase(UpdatePhase::Render, realDelta);
+            if (m_cameraContext.ready) scheduler->RunPhase(UpdatePhase::Render, realDelta);
             { MGE_PROFILE_SCOPE_N("StateRender"); if (stateManager) stateManager->Render(*renderer); }
         }
 
@@ -246,6 +233,8 @@ void Application::Run() {   // Внутри разметка под tracy. Ра�
 
 // Каждый тип компонента регистрируется один раз, до создания сущностей
 void Application::RegisterComponents() {
+    world->RegisterComponent<Camera>();
+    world->RegisterComponent<FreeFlyCameraController>();
     world->RegisterComponent<Transform>();
     world->RegisterComponent<WorldTransform>();
     world->RegisterComponent<Hierarchy>();
@@ -394,6 +383,7 @@ void Application::Shutdown() {
 
     // 2. ECS: системы раньше мира (они держат ссылки на World и рендер)
     scheduler.reset();
+    input.reset();
     world.reset();
 
     // Ресурсы замера освобождают GPU-объекты через рендер - отпускаем их, пока рендер жив
@@ -420,4 +410,9 @@ void Application::Shutdown() {
     jobs.reset();
 
     Logger::ShutDown();
+}
+bool Application::SetActiveCamera(Entity entity) {
+    if (!world || !world->IsAlive(entity) || !world->HasComponent<Camera>(entity) || !world->HasComponent<Transform>(entity) || !world->HasComponent<WorldTransform>(entity)) return false;
+    m_cameraContext.activeCamera = entity;
+    return true;
 }

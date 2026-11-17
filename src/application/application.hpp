@@ -2,6 +2,8 @@
 #define APPLICATION_HPP
 
 #include <memory>
+#include "ecs/systems/CameraSystem.hpp"
+#include "input/InputService.hpp"
 #include <vector>
 #include "render/IRenderAdapter.hpp"
 #include "ecs/World.hpp"
@@ -23,6 +25,8 @@ class Application {
         bool Init(int width, int height, const char* title, const BenchConfig& bench = {});
         void Run();
         void Shutdown();
+        bool SetActiveCamera(Entity entity);
+        Entity GetActiveCamera() const { return m_cameraContext.activeCamera; }
 
     private:
         GLFWwindow* window;
@@ -40,6 +44,8 @@ class Application {
         void CreateDemoLoadedEntities();
 
         SceneSettings m_sceneSettings;
+        CameraContext m_cameraContext;
+        std::unique_ptr<InputService> input;
 
         float m_simAccumulator = 0.0f;
         float m_simSpeed = 1.0f;

@@ -1,0 +1,1 @@
+{"version":2,"sceneSettings":{"activeCamera":"camera"},"entities":[{"id":"camera","components":{"Transform":{"position":[1,2,3]},"Camera":{"fovYDegrees":60,"near":0.2,"far":100}}}]}

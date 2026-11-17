@@ -18,6 +18,7 @@ enum class UpdatePhase {
 	Physics,	// физ движок
 	PostPhysics,	// привязки. Меч к руке, камера к голове
 	Transform,	// финальные мировые матрицы
+	Camera,
 	Audio,	// позиция слушателя и источников
 	Render,	// отрисовка
 	Count

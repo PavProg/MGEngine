@@ -2,6 +2,10 @@
 #include "componentRegistry.hpp"
 
 #include <fstream>
+#include "ecs/components/Camera.hpp"
+#include "ecs/components/Transform.hpp"
+#include "ecs/components/WorldTransform.hpp"
+#include <glm/gtc/matrix_transform.hpp>
 #include <unordered_map>
 
 #include <nlohmann/json.hpp>
@@ -75,11 +79,12 @@ namespace SceneLoader {
 
 		// Проверить версию формата
 		int version = root.value("version", 1);
-		if (version != 1) {
+		if (version != 1 && version != 2) {
 			Logger::Warning("SceneLoader: unsupported scene version "
 				+ std::to_string(version));
 		}
 
+		settings = SceneSettings{};
 		// Считать настройки сцены
 		if (root.contains("sceneSettings"))
 			ParseSceneSettings(root["sceneSettings"], settings);
@@ -126,6 +131,35 @@ namespace SceneLoader {
 			HierarchyUtils::SetParent(world, childIt->second, parentIt->second);
 		}
 
+        const auto scene = root.value("sceneSettings", json::object());
+        if (scene.contains("activeCamera")) {
+            const auto it = idMap.find(scene.at("activeCamera").get<std::string>());
+            if (it == idMap.end() || !world.HasComponent<Camera>(it->second) || !world.HasComponent<Transform>(it->second)) {
+                Logger::Error("SceneLoader: invalid activeCamera");
+                return false;
+            }
+            settings.activeCamera = it->second;
+        } else if (version == 1) {
+            const auto& old = settings.camera;
+            Camera camera;
+            camera.projection = old.projection;
+            camera.fovYDegrees = old.fov;
+            camera.nearPlane = old.nearPlan;
+            camera.farPlane = old.farPlan;
+            camera.orthoSize = old.orthoSize;
+            if (!camera.IsValid()) return false;
+            Transform transform;
+            transform.position = old.position;
+            transform.rotation = glm::quat_cast(glm::inverse(glm::lookAt(old.position, old.target, old.up)));
+            Entity e = world.CreateEntity();
+            world.AddComponent<Camera>(e, camera);
+            world.AddComponent<Transform>(e, transform);
+            world.AddComponent<WorldTransform>(e, WorldTransform{});
+            settings.activeCamera = e;
+        } else {
+            Logger::Error("SceneLoader: activeCamera is required");
+            return false;
+        }
 		Logger::Info("SceneLoader: scene loaded from " + path);
 		return true;
 	}

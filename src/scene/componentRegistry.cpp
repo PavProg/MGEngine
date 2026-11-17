@@ -4,6 +4,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include "ecs/components/Transform.hpp"
+#include "ecs/components/Camera.hpp"
 #include "ecs/components/FreeFlyCameraController.hpp"
 #include "ecs/components/WorldTransform.hpp"
 #include "ecs/components/Tag.hpp"
@@ -145,6 +146,18 @@ bool ComponentRegistry::Load(const std::string& name, World& world, Entity entit
 
 ComponentRegistry ComponentRegistry::CreateDefault(ResourceManager* resources) {
 	ComponentRegistry r;
+	r.Register("Camera", [](World& world, Entity e, const json& j) {
+        Camera camera;
+        const auto projection = j.value("projection", std::string("perspective"));
+        if (projection != "perspective" && projection != "orthographic") throw std::invalid_argument("Invalid camera projection");
+        camera.projection = projection == "perspective" ? ProjectionType::Perspective : ProjectionType::Orthographic;
+        camera.fovYDegrees = j.value("fovYDegrees", j.value("fov", camera.fovYDegrees));
+        camera.nearPlane = j.value("near", camera.nearPlane);
+        camera.farPlane = j.value("far", camera.farPlane);
+        camera.orthoSize = j.value("orthoSize", camera.orthoSize);
+        if (!camera.IsValid()) throw std::invalid_argument("Invalid camera frustum");
+        world.AddComponent<Camera>(e, camera);
+    });
 	r.Register("Transform", LoadTransform);
 	r.Register("Tag", LoadTag);
 	r.Register("FreeFlyCameraController", LoadFreeFlyCameraController);

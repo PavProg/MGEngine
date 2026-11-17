@@ -24,6 +24,7 @@ set(SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/SystemScheduler.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/input/InputService.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/CameraControllerSystem.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/CameraSystem.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/TransformSystem.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/RenderSystem.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/AnimationSystem.cpp
@@ -41,6 +42,8 @@ set(SOURCES
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES})
+set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT ${PROJECT_NAME})
+set_property(TARGET ${PROJECT_NAME} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:${PROJECT_NAME}>")
 
 option(MGE_ENABLE_PROFILER "Профилирование через Tracy" ON)
 
@@ -107,3 +110,13 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         "$<TARGET_FILE_DIR:${PROJECT_NAME}>/assets"
     COMMENT "Copying assets to build directory"
 )
+
+include(CTest)
+if(BUILD_TESTING)
+    set(TEST_SOURCES ${SOURCES})
+    list(FILTER TEST_SOURCES EXCLUDE REGEX "/(main|application/application)\\.cpp$")
+    add_executable(CameraTests tests/CameraTests.cpp ${TEST_SOURCES})
+    target_link_libraries(CameraTests PRIVATE $<TARGET_PROPERTY:MyGameEngine,LINK_LIBRARIES>)
+    add_test(NAME CameraTests COMMAND CameraTests)
+    set_tests_properties(CameraTests PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+endif()
