@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <vector>
+
 #include "render/IRenderAdapter.hpp"
 #include "ecs/World.hpp"
 #include "ecs/SystemScheduler.hpp"
