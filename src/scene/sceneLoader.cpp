@@ -2,15 +2,19 @@
 #include "componentRegistry.hpp"
 
 #include <fstream>
+#include <stdexcept>
 #include <unordered_map>
 
 #include <nlohmann/json.hpp>
 
-#include "ecs/systems/HierarchyUtils.hpp"
-#include "logger/logger.hpp"
-
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+
+#include "ecs/systems/HierarchyUtils.hpp"
+#include "logger/logger.hpp"
+#include "ecs/components/Camera.hpp"
+#include "ecs/components/Transform.hpp"
+#include "ecs/components/WorldTransform.hpp"
 
 using nlohmann::json;
 
@@ -54,78 +58,149 @@ namespace {
 }
 
 namespace SceneLoader {
-	bool Load(const std::string& path, World& world, SceneSettings& settings) {
-		// Открыть файл
+	bool Load(const std::string& path, World& world, SceneSettings& settings, ResourceManager* resources, bool importLegacyCamera) {
 		std::ifstream file(path);
-		if (!file.is_open()) {
+
+		if (!file.is_open())
+		{
 			Logger::Error("SceneLoader: cannot open file " + path);
 			return false;
 		}
 
-		// Распарсить json
-		json root;
 		try {
+			json root;
 			file >> root;
-		}
-		catch (const std::exception& e) {
-			Logger::Error("SceneLoader: JSON parse error: " + std::string(e.what()));
-			return false;
-		}
 
-		// Проверить версию формата
-		int version = root.value("version", 1);
-		if (version != 1) {
-			Logger::Warning("SceneLoader: unsupported scene version "
-				+ std::to_string(version));
-		}
+			const int version = root.value("version", 1);
 
-		// Считать настройки сцены
-		if (root.contains("SceneSettings"))
-			ParseSceneSettings(root["SceneSettings"], settings);
+			if (version != 1 && version != 2)
+			{
+				Logger::Error("SceneLoader: unsupported scene version");
+				return false;
+			}
 
-		// Подготовить реестр
-		const ComponentRegistry registry = ComponentRegistry::CreateDefault();
+			settings = SceneSettings{};
 
-		if (!root.contains("entities") || !root["entities"].is_array()) {
-			Logger::Warning("SceneLoader: no entities array in scene");
-			return true;
-		}
+			if (root.contains("sceneSettings")) {
+				ParseSceneSettings(root["sceneSettings"], settings);
+			}
 
-		// 1. Создание сущностей и компонентов
-		std::unordered_map<std::string, EntityId> idMap;
+			const ComponentRegistry resgistry = ComponentRegistry::CreateDefault(resources);
+			if (!root.contains("entities")
+				|| !root["entities"].is_array()) {
+				Logger::Error("SceneLoader: entities array is required");
+				return false;
+			}
 
-		for (const auto& entJson : root["entities"]) {
-			std::string id = entJson.value("id", std::string{});
-			EntityId e = world.CreateEntity();
-			if (!id.empty()) idMap[id] = e;
+			std::unordered_map<std::string, Entity> idMap; // временная таблица, связывающая строковые имена из JSON с настоящими Entity
 
-			if (entJson.contains("components") && entJson["components"].is_object()) {
-				const json& comps = entJson["components"];
-				for (auto it = comps.begin(); it != comps.end(); ++it) {
-					registry.Load(it.key(), world, e, it.value());
+			// Первый проход создает сущности и компоненты
+			for (const auto& entityData : root["entities"])
+			{
+				const std::string id = entityData.value("id", std::string{});
+
+				if (!id.empty() && idMap.find(id) != idMap.end()) {
+					Logger::Error("SceneLoader: duplicate entity id " + id);
+					return false;
+				}
+				const Entity entity = world.CreateEntity();
+
+				if (!id.empty()) {
+					idMap.emplace(id, entity);
+				}
+				if (!entityData.contains("components")) {
+					continue;
+				}
+
+				const json& components = entityData["components"];
+				if (!components.is_object()) {
+					Logger::Error("SceneLoader: components must be an object");
+					return false;
+				}
+
+				for (auto it = components.begin(); it != components.end(); ++it) {
+					if (!resgistry.Load(it.key(), world, entity, it.value())) {
+						return false;
+					}
 				}
 			}
-		}
 
-		// Расстановка parent->child связей
-		for (const auto& entJson : root["entities"]) {
-			if (!entJson.contains("parent")) continue;
+			// Второй проход устанавливает родительские связи
+			for (const auto& entityData : root["entities"]) {
+				if (!entityData.contains("parent")) {
+					continue;
+				}
 
-			std::string childId = entJson.value("id", std::string{});
-			std::string parentId = entJson["parent"].get<std::string>();
+				const std::string childId = entityData.value("id", std::string{});
+				const std::string parentId = entityData["parent"].get<std::string>();
+				const auto child = idMap.find(childId);
+				const auto parent = idMap.find(parentId);
 
-			auto childIt = idMap.find(childId);
-			auto parentIt = idMap.find(parentId);
+				if (child == idMap.end() || parent == idMap.end()) {
+					Logger::Error("SceneLoader: invalid parent link");
+					return false;
+				}
 
-			if (childIt == idMap.end() || parentIt == idMap.end()) {
-				Logger::Warning("SceneLoader: bad parent link "
-					+ parentId + " for " + childId);
-				continue;
+				if (!HierarchyUtils::SetParent(world, child->second, parent->second)) {
+					Logger::Error("SceneLoader: parent link rejected");
+					return false;
+				}
 			}
-			HierarchyUtils::SetParent(world, childIt->second, parentIt->second);
-		}
 
-		Logger::Info("SceneLoader: scene loaded from " + path);
-		return true;
+			// Выбор активной камеры после создания всех сущностей
+			const json scene = root.value("sceneSettings", json::object());
+
+			if (scene.contains("activeCamera")) {
+				const std::string id = scene.at("activeCamera").get<std::string>();
+				const auto found = idMap.find(id);
+
+				if (found == idMap.end()
+					|| !world.HasComponent<Camera>(found->second)
+					|| !world.HasComponent<Transform>(found->second)
+					|| !world.HasComponent<WorldTransform>(found->second)) {
+					Logger::Error("SceneLoader: invalid activeCamera");
+					return false;
+				}
+				settings.activeCamera = found->second;
+			}
+			else if (version == 1) {
+				// Для теста трансформов камера не создается
+				if (importLegacyCamera) {
+					const CameraSettings& old = settings.camera;
+
+					Camera camera{};
+					camera.projection = old.projection;
+					camera.fovYDegrees = old.fov;
+					camera.nearPlane = old.nearPlan;
+					camera.farPlane = old.farPlan;
+					camera.orthoSize = old.orthoSize;
+
+					if (!camera.IsValid()) {
+						Logger::Error("SceneLoader: invalid legacy camera");
+						return false;
+					}
+
+					Transform transform{};
+					transform.position = old.position;
+					transform.rotation = glm::quat_cast(glm::inverse(glm::lookAt(old.position, old.target, old.up)));
+					const Entity entity = world.CreateEntity();
+					world.AddComponent<Camera>(entity, camera);
+					world.AddComponent<Transform>(entity, transform);
+					world.AddComponent<WorldTransform>(entity, WorldTransform{});
+					settings.activeCamera = entity;
+				}
+			}
+			else {
+				Logger::Error("SceneLoader: activeCamera is required");
+				return false;
+			}
+
+			Logger::Info("SceneLoader: scene loaded from " + path);
+			return true;
+		}
+		catch (const std::exception& error) {
+			Logger::Error("SceneLoader: " + path + ": " + error.what());
+			return false;
+		}
 	}
 }

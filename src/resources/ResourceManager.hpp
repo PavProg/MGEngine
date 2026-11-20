@@ -5,6 +5,7 @@
 #include <string>
 #include <unordered_map>
 #include <typeindex>
+#include <atomic>
 
 #include "Resource.hpp"
 #include "LoadQueue.hpp"
@@ -17,7 +18,7 @@ class IRenderAdapter;
 
 class ResourceManager {
 public:
-    explicit ResourceManager(IRenderAdapter& renderer);
+    ResourceManager(IRenderAdapter& renderer, JobSystem& job);
     ~ResourceManager();
 
     // Возвращает shared_ptr или nullptr при ошибке.
@@ -32,16 +33,21 @@ public:
     void ReloadModifiedTextures();
 
     template<typename T>
-    std::shared_ptr<Resource<T>> LoadAsync(const std::string& path);
+    std::shared_ptr<Resource<T>> LoadAsync(const std::string& path, JobPriority priority = JobPriority::Normal);
 
     // async архитектура
     void InitPlaceholders();
     void ReleasePlaceholders();
-    void StartAsync(int workerks = 2) { m_queue.Start(workerks); }
-    void StopAsync() { m_queue.Stop(); }
-    void PumpUploads() { m_queue.Pump(); }
+    
+    void PumpUploads(double budgetMs) { m_queue.Pump(budgetMs); }
+    void DropPendingUploads() { m_queue.DropPendingFinalizers(); }
+
+    // Для графиков Tracy и режима замера
+    int GetLoadsInFlight() const { return m_inFlight.load(); }
+    std::size_t GetPendingFinalizers() { return m_queue.PendingFinalizers(); }
 private:
     IRenderAdapter& m_renderer;
+    std::atomic<int> m_inFlight{ 0 };   // сколько асинхронных загрузок ещё не дошли до финализатора
 
     std::unordered_map<
         std::type_index,

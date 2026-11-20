@@ -12,13 +12,19 @@
 #include "states/PauseState.hpp"
 #include "render/OpenGLAdapter.hpp"
 
+#include "ecs/components/Camera.hpp"
+#include "ecs/components/FreeFlyCameraController.hpp"
+#include "ecs/systems/CameraControllerSystem.hpp"
 #include "ecs/World.hpp"
+#include "ecs/SystemScheduler.hpp"
 #include "ecs/components/Transform.hpp"
+#include "ecs/components/WorldTransform.hpp"
 #include "ecs/components/Tag.hpp"
 #include "ecs/components/MeshRenderer.hpp"
+#include "ecs/components/Hierarchy.hpp"
 #include "ecs/systems/RenderSystem.hpp"
 #include "ecs/systems/AnimationSystem.hpp"
-#include "ecs/components/Hierarchy.hpp"
+#include "ecs/systems/TransformSystem.hpp"
 #include "ecs/systems/HierarchyUtils.hpp"
 
 #include "scene/SceneLoader.hpp"
@@ -28,21 +34,32 @@
 #include "resources/Texture.hpp"
 #include "resources/ShaderProgram.hpp"
 
-#include "ecs/components/Collider.hpp"
-#include "ecs/components/Rigidbody.hpp"
-
 #include "core/profiler.hpp"
 
-Application::Application() 
+#include <cstdio>
+
+Application::Application()
 : window(nullptr), running(false), lastFrameTime(0.0), stateManager(nullptr) {}
 
 Application::~Application() {
     Shutdown();
 }
 
-bool Application::Init(int width, int height, const char* title) {
+bool Application::Init(int width, int height, const char* title, const BenchConfig& bench) {
+    m_bench = bench;
 
     Logger::Init("game.log");
+
+    if (m_bench.IsTransformBench() && !BenchConfig::SupportsTransformBench()) {
+        Logger::Error("Transform benchmark requires windows-x64-profile");
+        return false;
+    }
+
+    // Самой первой подсистемой и строго из главного потока:
+    // поток, который вызвал Init, enkiTS считает потоком 0
+    jobs = std::make_unique<JobSystem>();
+    const unsigned hw = std::thread::hardware_concurrency();
+    jobs->Init(m_bench.scenario == "transform-serial" ? 0u : (hw > 2 ? hw - 2 : 1u));
 
     if (!glfwInit()) {
         Logger::Error("Failed to initialize GLFW");
@@ -52,9 +69,6 @@ bool Application::Init(int width, int height, const char* title) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    #ifdef __APPLE__
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-    #endif
 
     window = glfwCreateWindow(width, height, title, nullptr, nullptr);
 
@@ -72,9 +86,8 @@ bool Application::Init(int width, int height, const char* title) {
         glfwTerminate();
         return false;
     }
-
-    running = true;
-    Logger::Info("Application initialized");
+    // 1 - ждать монитор (VSync), 0 - рисовать без ожидания (для замеров)
+    glfwSwapInterval(m_bench.vsync ? 1 : 0);
 
     stateManager = std::make_unique<StateManager>();
     stateManager->ChangeState(std::make_unique<MenuState>());
@@ -86,26 +99,71 @@ bool Application::Init(int width, int height, const char* title) {
         return false;
     }
 
-    resourceManager = std::make_unique<ResourceManager>(*renderer);
+    resourceManager = std::make_unique<ResourceManager>(*renderer, *jobs);
 
     resourceManager->InitPlaceholders();
-    resourceManager->StartAsync(2);
 
     world = std::make_unique<World>();
-    Logger::Info("Build Marker v2: creating systems");
-    physicsSystem = std::make_unique<PhysicsSystem>(*world);
-    Logger::Info("PhysicsSystem created");
-    renderSystem = std::make_unique<RenderSystem>(*world, *renderer);
-    Logger::Info("RenderSystem created");
-    animationSystem = std::make_unique<AnimationSystem>(*world);
-    Logger::Info("AnimationSystem created");
+    RegisterComponents();
 
-    if (!SceneLoader::Load("assets/scenes/test_scene.json", *world, m_sceneSettings)) {
-        Logger::Error("Failed to load scene; using empty world");
+    // Фаза каждой системы задана в ней самой (GetPhase)
+    // Физика временно отключена: ее заменит физ. движок
+    scheduler = std::make_unique<SystemScheduler>(*world, *jobs);
+
+    input = std::make_unique<InputService>(*window);
+    input->SetGameplayInputEnabled(m_bench.scenario.empty());
+
+    scheduler->AddSystem<CameraControllerSystem>(input->GetFrame(), m_cameraContext.activeCamera);
+    scheduler->AddSystem<CameraSystem>(*renderer, m_cameraContext);
+    scheduler->AddSystem<AnimationSystem>();
+    scheduler->AddSystem<TransformSystem>(*jobs);
+    scheduler->AddSystem<RenderSystem>(*renderer);
+    Logger::Info("ECS systems created");
+
+    if (m_bench.IsTransformBench()) {
+        constexpr std::size_t expectedCount = 50000;
+
+        if (!SceneLoader::Load("assets/bench/transform_scene.json", *world, m_sceneSettings, nullptr, false) ||
+            world->GetAliveCount() != expectedCount ||
+            world->GetPool<Transform>().Size() != expectedCount ||
+            world->GetPool<WorldTransform>().Size() != expectedCount) {
+            Logger::Error(
+                "BENCH: expected 50000 transforms in "
+                "assets/bench/transform_scene.json"
+            );
+            return false;
+        }
+        Logger::Info("BENCH: transform entities=" + std::to_string(expectedCount)
+            + " workers=" + std::to_string(jobs->GetThreadCount() - 1));
+    }
+    else {
+        const bool normalLaunch = m_bench.scenario.empty();
+        const char* scenePath = normalLaunch ? "assets/scenes/camera_scene.json" : "assets/scenes/test_scene.json";
+
+        if (!SceneLoader::Load(scenePath, *world, m_sceneSettings, resourceManager.get())) {
+            Logger::Error("Failed to load scene");
+            return false;
+        }
+
+        if (!SetActiveCamera(m_sceneSettings.activeCamera)) {
+            Logger::Error("Failed to select active camera");
+            return false;
+        }
+
+        if (!normalLaunch) {
+            CreateDemoLoadedEntities();
+        }
     }
 
-    CreateDemoLoadedEntities();
-
+    if (!m_bench.scenario.empty()) {
+        m_benchPhase = BenchPhase::Warmup;
+        m_benchT0 = glfwGetTime();
+        Logger::Info("BENCH: scenario " + m_bench.scenario
+            + (m_bench.vsync ? " (vsync on)" : " (vsync off)"));
+    }
+    
+    running = true;
+    Logger::Info("Application initialized");
     return true;
 }
 
@@ -127,8 +185,21 @@ void Application::Run() {   // Внутри разметка под tracy. Ра�
         // Защита от spiral of death
         if (realDelta > 0.25f) realDelta = 0.25f;
 
-        { MGE_PROFILE_SCOPE_N("PollEvents"); glfwPollEvents(); }
-        { MGE_PROFILE_SCOPE_N("PumpUploads"); if (resourceManager) resourceManager->PumpUploads(); }
+        { MGE_PROFILE_SCOPE_N("PollEvents"); input->PollEvents(); }
+        
+        UpdateBench(currentTime);
+        // Ввод - раз в кадр отрисовки (повороту камеры мышью нужна частота монитора)
+        scheduler->RunPhase(UpdatePhase::Input, realDelta);
+
+        { MGE_PROFILE_SCOPE_N("PumpUploads"); if (resourceManager) resourceManager->PumpUploads(UPLOAD_BUDGET_MS); }
+        if (jobs) {
+            jobs->CollectFinished();
+            MGE_PROFILE_PLOT("JobsInFlight", static_cast<int64_t>(jobs->GetJobsInFlight()));
+        }
+        if (resourceManager) {
+            MGE_PROFILE_PLOT("LoadsInFlight", static_cast<int64_t>(resourceManager->GetLoadsInFlight()));
+            MGE_PROFILE_PLOT("FinalizeQueue", static_cast<int64_t>(resourceManager->GetPendingFinalizers()));
+        }
 
         {
             MGE_PROFILE_SCOPE_N("HotReload");
@@ -150,9 +221,11 @@ void Application::Run() {   // Внутри разметка под tracy. Ра�
             while (m_simAccumulator >= SIM_STEP) {
                 MGE_PROFILE_SCOPE_N("SimStep");
                     { MGE_PROFILE_SCOPE_N("StateLogic"); if (stateManager) stateManager->Update(SIM_STEP); }
-                    { MGE_PROFILE_SCOPE_N("Physics"); if (physicsSystem) physicsSystem->Update(SIM_STEP); }
-                    { MGE_PROFILE_SCOPE_N("Animation"); if (animationSystem) animationSystem->Update(SIM_STEP); }
-                    
+                    scheduler->RunPhase(UpdatePhase::GameLogic, SIM_STEP);
+                    scheduler->RunPhase(UpdatePhase::Animation, SIM_STEP);
+                    scheduler->RunPhase(UpdatePhase::Physics, SIM_STEP);
+                    scheduler->RunPhase(UpdatePhase::PostPhysics, SIM_STEP);
+
                     m_simAccumulator -= SIM_STEP;
                     ++simSteps;
             }
@@ -166,6 +239,9 @@ void Application::Run() {   // Внутри разметка под tracy. Ра�
             glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
             glViewport(0, 0, fbWidth, fbHeight);
 
+            m_cameraContext.framebufferWidth = fbWidth;
+            m_cameraContext.framebufferHeight = fbHeight;
+
             float aspect = (fbHeight > 0)
                 ? static_cast<float>(fbWidth) / static_cast<float>(fbHeight)
                 : 1.0f;
@@ -177,28 +253,18 @@ void Application::Run() {   // Внутри разметка под tracy. Ра�
                 m_sceneSettings.background.a
             );
 
-            glm::mat4 view = glm::lookAt(
-                m_sceneSettings.camera.position,
-                m_sceneSettings.camera.target,
-                m_sceneSettings.camera.up
-            );
+            scheduler->RunPhase(UpdatePhase::Transform, realDelta);
 
-            glm::mat4 projection;
-            if (m_sceneSettings.camera.projection == ProjectionType::Orthographic) {
-                float halfH = m_sceneSettings.camera.orthoSize;
-                float halfW = halfH * aspect;
-                // ortho - это матрица, которая создает параллепипед с 4 аргументами: лева, права, вверх, низ, nearPlan, farPlan
-                projection = glm::ortho(-halfW, halfW, -halfH, halfH, m_sceneSettings.camera.nearPlan, m_sceneSettings.camera.farPlan);
-            }
-            else {
-                projection = glm::perspective(glm::radians(m_sceneSettings.camera.fov),
-                    aspect,
-                    m_sceneSettings.camera.nearPlan, m_sceneSettings.camera.farPlan); // (угол обзора, соотношение экрана, nearPlan, farPlan)
+            if (!m_bench.IsTransformBench()) {
+                scheduler->RunPhase(UpdatePhase::Camera, realDelta);
             }
 
-            renderer->SetCamera(view, projection);
+            scheduler->RunPhase(UpdatePhase::Audio, realDelta);
 
-            { MGE_PROFILE_SCOPE_N("RenderSystem"); if (renderSystem) renderSystem->Update(); }
+            if (m_bench.IsTransformBench() || m_cameraContext.ready) {
+                scheduler->RunPhase(UpdatePhase::Render, realDelta);
+            }
+
             { MGE_PROFILE_SCOPE_N("StateRender"); if (stateManager) stateManager->Render(*renderer); }
         }
 
@@ -208,11 +274,37 @@ void Application::Run() {   // Внутри разметка под tracy. Ра�
     Logger::Info("Exited main loop");
 }
 
+// Каждый тип компонента регистрируется один раз, до создания сущностей
+void Application::RegisterComponents() {
+    world->RegisterComponent<Transform>();
+    world->RegisterComponent<WorldTransform>();
+    world->RegisterComponent<Hierarchy>();
+    world->RegisterComponent<MeshRenderer>();
+    world->RegisterComponent<Tag>();
+
+    world->RegisterComponent<Camera>();
+    world->RegisterComponent<FreeFlyCameraController>();
+}
+
+bool Application::SetActiveCamera(Entity entity) {
+    if (!world || !world->IsAlive(entity)
+        || !world->HasComponent<Camera>(entity)
+        || !world->HasComponent<Transform>(entity)
+        || !world->HasComponent<WorldTransform>(entity)) {
+        return false;
+    }
+
+    m_cameraContext.activeCamera = entity;
+    m_cameraContext.ready = false;
+
+    return true;
+}
+
 void Application::CreateDemoLoadedEntities() {
     // Загружаем 3 типа ресурсов
-    auto mesh = resourceManager->LoadAsync<Mesh>("assets/models/quad.obj");
-    auto texture = resourceManager->LoadAsync<Texture>("assets/textures/test.png");
-    auto shader = resourceManager->Load<ShaderProgram>("assets/shaders/model");
+    auto mesh = resourceManager->LoadAsync<Mesh>("assets/models/quad.obj", JobPriority::High);
+    auto texture = resourceManager->LoadAsync<Texture>("assets/textures/test.png", JobPriority::High);
+    auto shader = resourceManager->Load<ShaderProgram>("assets/shaders/model"); // TODO LoadAsync
 
     if (!mesh || !texture || !shader) {
         Logger::Error("Demo: one of the resources failed to load");
@@ -220,14 +312,16 @@ void Application::CreateDemoLoadedEntities() {
     }
 
     // Спавним 3 сущности
+    // Rigidbody/Collider убраны вместе с физикой (вернутся с физ. движком)
     for (int i = 0; i < 2; ++i) {
-        EntityId e = world->CreateEntity();
+        Entity e = world->CreateEntity();
 
         Transform t{};
         t.position = glm::vec3(-3.0f + i * 3.0f, -3.0f, 0.0f);
         t.rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
         t.scale = glm::vec3(2.0f);
         world->AddComponent<Transform>(e, t);
+        world->AddComponent<WorldTransform>(e, WorldTransform{});
 
         MeshRenderer mr{};
         mr.primitiveType = PrimitiveType::None;
@@ -238,26 +332,17 @@ void Application::CreateDemoLoadedEntities() {
         world->AddComponent<MeshRenderer>(e, mr);
 
         world->AddComponent<Tag>(e, { "LoadedQuad_" + std::to_string(i) });
-
-        Rigidbody rb{};
-        rb.velocity = glm::vec3(0.0f, 0.0f, 0.0f);
-        rb.useGravity = false;
-        world->AddComponent<Rigidbody>(e, rb);
-
-        Collider col{};
-        col.type = ColliderType::Box;
-        col.halfExtents = glm::vec3(0.5f, 0.5f, 0.5f);
-        world->AddComponent<Collider>(e, col);
     }
 
     for (int i = 0; i < 1; ++i) {
-        EntityId e = world->CreateEntity();
+        Entity e = world->CreateEntity();
 
         Transform t{};
         t.position = glm::vec3(-3.0f + i * 3.0f, -3.0f, 0.0f);
         t.rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
         t.scale = glm::vec3(2.0f);
         world->AddComponent<Transform>(e, t);
+        world->AddComponent<WorldTransform>(e, WorldTransform{});
 
         MeshRenderer mr{};
         mr.primitiveType = PrimitiveType::None;
@@ -268,31 +353,107 @@ void Application::CreateDemoLoadedEntities() {
         world->AddComponent<MeshRenderer>(e, mr);
 
         world->AddComponent<Tag>(e, { "LoadedQuad_" + std::to_string(i) });
-
-        Rigidbody rb{};
-        rb.velocity = glm::vec3(0.0f, 0.0f, 0.0f);
-        rb.useGravity = false;
-        world->AddComponent<Rigidbody>(e, rb);
-
-        Collider col{};
-        col.type = ColliderType::Box;
-        col.halfExtents = glm::vec3(0.5f, 0.5f, 0.5f);
-        world->AddComponent<Collider>(e, col);
     }
 
     Logger::Info("Demo: 3 entities sharing one mesh + one texture + one shader");
 }
 
+// Режим замера
+
+void Application::StartBenchBatch() {
+    MGE_PROFILE_SCOPE_N("BenchSubmit");
+    const bool sync = (m_bench.scenario == "load-sync");
+    char path[64];
+    for (int i = 0; i < 24; ++i) {
+        std::snprintf(path, sizeof(path), "assets/bench/tex_%02d.png", i);
+        m_benchTextures.push_back(sync ? resourceManager->Load<Texture>(path)
+                                       : resourceManager->LoadAsync<Texture>(path));
+    }
+    for (int i = 0; i < 8; ++i) {
+        std::snprintf(path, sizeof(path), "assets/bench/mesh_%02d.obj", i);
+        m_benchMeshes.push_back(sync ? resourceManager->Load<Mesh>(path)
+                                     : resourceManager->LoadAsync<Mesh>(path));
+    }
+    Logger::Info("BENCH: batch submitted");   // логгер дублирует сообщение в Tracy
+}
+
+bool Application::BenchBatchDone() const {
+    auto loading = [](const auto& r) { return r && r->state.load() == ResourceState::Loading; };
+    for (const auto& t : m_benchTextures) if (loading(t)) return false;
+    for (const auto& m : m_benchMeshes)   if (loading(m)) return false;
+    return true;
+}
+
+// Прогрев -> пачка загрузок -> ожидание готовности -> "хвост" -> выход.
+// Время по часам (glfwGetTime), а не по кадрам: прогоны совпадают при любом FPS.
+void Application::UpdateBench(double now) {
+    switch (m_benchPhase) {
+    case BenchPhase::Off:
+        return;
+
+    case BenchPhase::Warmup:
+        if (now - m_benchT0 < BENCH_WARMUP_S) return;
+        if (m_bench.scenario == "steady" || m_bench.IsTransformBench()) {
+            m_benchPhase = BenchPhase::Tail;
+            m_benchTailStart = now;
+            if (m_bench.IsTransformBench()) {
+                Logger::Info("BENCH: transform window begin");
+            }
+            return;
+        }
+        m_benchBatchStart = now;
+        StartBenchBatch();
+        m_benchPhase = BenchPhase::Loading;
+        return;
+
+    case BenchPhase::Loading:
+        if (m_bench.scenario == "load-exit" && now - m_benchBatchStart >= 0.1) {
+            Logger::Info("BENCH: exit requested with live loads");
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
+            m_benchPhase = BenchPhase::Done;
+        }
+        else if (BenchBatchDone()) {
+            Logger::Info("BENCH: batch done in "
+                + std::to_string((now - m_benchBatchStart) * 1000.0) + " ms");
+            m_benchPhase = BenchPhase::Tail;
+            m_benchTailStart = now;
+        }
+        return;
+
+    case BenchPhase::Tail: {
+        const double tail = (m_bench.scenario == "steady" || m_bench.IsTransformBench())
+            ? BENCH_STEADY_S : BENCH_TAIL_S;
+        if (now - m_benchTailStart >= tail) {
+            if (m_bench.IsTransformBench()) {
+                Logger::Info("BENCH: transform window end");
+            }
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
+            m_benchPhase = BenchPhase::Done;
+        }
+        return;
+    }
+
+    case BenchPhase::Done:
+        return;
+    }
+}
+
 void Application::Shutdown() {
+    MGE_PROFILE_SCOPE_N("Shutdown");
     Logger::Warning("Shutting down application");
 
     // 1. Сначала потоки
-    if (resourceManager) resourceManager->StopAsync();
+    if (jobs) jobs->Shutdown();
+    if (resourceManager) resourceManager->DropPendingUploads();
 
-    // 2. ECS
-    animationSystem.reset();
-    renderSystem.reset();
+    // 2. ECS: системы раньше мира (они держат ссылки на World и рендер)
+    scheduler.reset();
+    input.reset();
     world.reset();
+
+    // Ресурсы замера освобождают GPU-объекты через рендер - отпускаем их, пока рендер жив
+    m_benchTextures.clear();
+    m_benchMeshes.clear();
 
     // 3. Менеджер
     resourceManager.reset();
@@ -310,6 +471,8 @@ void Application::Shutdown() {
     }
     glfwTerminate();
     running = false;
+
+    jobs.reset();
 
     Logger::ShutDown();
 }

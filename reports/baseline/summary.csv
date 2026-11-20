@@ -1,0 +1,5 @@
+﻿scenario,runs,window_ms,frames,frame_median_ms,frame_p95_ms,frame_p99_ms,frame_max_ms,frames_over_16_7,frames_over_33_3,main_loadsync_ms,main_pump_ms,main_pump_max_ms,main_upload_ms,parse_total_ms,worker_util_pct,shutdown_ms
+load-async,5,2687.5,17748,0.121,0.223,0.486,15.2,0,0,0,94,15.1,88.1,5359.1,99.7,70.7
+load-exit,5,100.1,743,0.113,0.231,0.405,2.7,0,0,0,0.2,0,0,4280,,2082
+load-sync,5,4150.8,2,0.201,4150.737,4150.737,4150.7,1,1,4150.5,0,0,0,0.3,,84.6
+steady,5,15000.1,132806,0.096,0.17,0.321,3.4,0,0,0,35.6,0.1,0,0.3,,15

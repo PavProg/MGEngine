@@ -2,8 +2,10 @@
 #include "render/IRenderAdapter.hpp"
 #include "logger/logger.hpp"
 
-ResourceManager::ResourceManager(IRenderAdapter& renderer) 
-	: m_renderer(renderer) {}
+ResourceManager::ResourceManager(IRenderAdapter& renderer, JobSystem& jobs) 
+	: m_renderer(renderer) {
+	m_queue.SetJobSystem(&jobs);
+}
 
 ResourceManager::~ResourceManager() {
 	ReleasePlaceholders();

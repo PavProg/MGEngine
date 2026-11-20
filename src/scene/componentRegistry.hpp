@@ -9,15 +9,17 @@
 
 #include "ecs/World.hpp"
 
+class ResourceManager;
+
 class ComponentRegistry {
 public:
-	using Loader = std::function<void(World&, EntityId, const nlohmann::json&)>;
-	
+	using Loader = std::function<void(World&, Entity, const nlohmann::json&)>;
+
 	void Register(const std::string& name, Loader loader);
 
-	bool Load(const std::string& name, World& world, EntityId entity, const nlohmann::json& data) const;
+	bool Load(const std::string& name, World& world, Entity entity, const nlohmann::json& data) const;
 
-	static ComponentRegistry CreateDefault();
+	static ComponentRegistry CreateDefault(ResourceManager* resources = nullptr);
 private:
 	std::unordered_map<std::string, Loader> m_loaders;
 };

@@ -6,6 +6,7 @@ bin/
 lib/
 Debug/
 Release/
+assets/bench/
 
 # Visual Studio / Rider / VSCode IDE
 .vs/
@@ -30,8 +31,12 @@ compile_commands.json
 !CMakeLists.txt
 !CMakePresets.json
 
+!vcpkg-overlay/**/*.cmake
+
 # Объектные файлы, библиотеки, бинарники
 *.obj
+# ...но модели OBJ в assets нужны (исключение должно стоять ПОСЛЕ *.obj)
+!assets/**/*.obj
 *.o
 *.a
 *.lib

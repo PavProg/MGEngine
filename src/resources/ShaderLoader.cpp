@@ -2,6 +2,7 @@
 #include "ResourceManager.hpp"
 #include "render/IRenderAdapter.hpp"
 #include "logger/logger.hpp"
+#include "core/profiler.hpp"
 
 #include <filesystem>
 #include <sstream>
@@ -26,6 +27,8 @@ namespace {
 
 namespace ShaderLoader {
 	std::shared_ptr<Resource<ShaderProgram>> Load(const std::string& basePath, IRenderAdapter& renderer) {
+		MGE_PROFILE_SCOPE_N("LoadShader");
+		MGE_PROFILE_TEXT(basePath.c_str(), basePath.size());
 		std::string vsPath = basePath + ".vert";
 		std::string fsPath = basePath + ".frag";
 
@@ -68,6 +71,7 @@ ResourceManager::LoadImpl<ShaderProgram>(const std::string& path) {
 }
 
 void ResourceManager::ReloadModifiedShaders() {
+	MGE_PROFILE_SCOPE_N("HotReloadShaders");
 	auto typeIt = m_caches.find(std::type_index(typeid(ShaderProgram)));
 	if (typeIt == m_caches.end()) return;
 

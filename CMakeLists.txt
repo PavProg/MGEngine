@@ -20,6 +20,9 @@ set(SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/states/StateManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/render/OpenGLAdapter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/World.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/CommandBuffer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/SystemScheduler.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/TransformSystem.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/RenderSystem.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/AnimationSystem.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/HierarchyUtils.cpp
@@ -31,10 +34,25 @@ set(SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/ShaderLoader.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/StbImage.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/TinyObjLoader.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/PhysicsSystem.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core/JobSystem.cpp
+
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/input/InputService.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/CameraControllerSystem.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/CameraSystem.cpp
+    # PhysicsSystem.cpp временно исключен: заменим физ. движком
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES})
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    $<$<CONFIG:RelWithDebInfo>:MGE_TRANSFORM_BENCH_AVAILABLE>
+)
+
+set_property(
+    TARGET ${PROJECT_NAME}
+    PROPERTY VS_DEBUGGER_WORKING_DIRECTORY
+    "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
+)
 
 option(MGE_ENABLE_PROFILER "Профилирование через Tracy" ON)
 
@@ -71,10 +89,12 @@ elseif(WIN32)
     # --- Windows (vcpkg + MSVC / MinGW) ---
     find_package(glfw3          CONFIG REQUIRED)
     find_package(glm            CONFIG REQUIRED)
+    find_package(enkiTS         CONFIG REQUIRED)
 
     target_link_libraries(${PROJECT_NAME} PRIVATE
         glfw
         glm::glm
+        enkiTS::enkiTS
         opengl32
         gdi32
     )
@@ -94,7 +114,7 @@ else()
 endif()
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
         "${CMAKE_SOURCE_DIR}/assets"
         "$<TARGET_FILE_DIR:${PROJECT_NAME}>/assets"
     COMMENT "Copying assets to build directory"
