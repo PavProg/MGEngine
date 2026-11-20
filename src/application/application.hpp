@@ -3,12 +3,15 @@
 
 #include <memory>
 #include <vector>
+
 #include "render/IRenderAdapter.hpp"
 #include "ecs/World.hpp"
 #include "ecs/SystemScheduler.hpp"
 #include "scene/SceneSettings.hpp"
 #include "resources/ResourceManager.hpp"
 #include "core/JobSystem.hpp"
+#include "ecs/systems/CameraSystem.hpp"
+#include "input/InputService.hpp"
 
 #include "application/BenchConfig.hpp"
 
@@ -23,7 +26,11 @@ class Application {
         bool Init(int width, int height, const char* title, const BenchConfig& bench = {});
         void Run();
         void Shutdown();
-
+        
+        bool SetActiveCamera(Entity entity);
+        Entity GetActiveCamera() const {
+            return m_cameraContext.activeCamera;
+        }
     private:
         GLFWwindow* window;
         bool running;
@@ -36,8 +43,10 @@ class Application {
 
         std::unique_ptr<ResourceManager> resourceManager;
 
+        CameraContext m_cameraContext;
+        std::unique_ptr<InputService> input;
+
         void RegisterComponents();
-        void CreateDemoLoadedEntities();
 
         SceneSettings m_sceneSettings;
 
@@ -66,6 +75,7 @@ class Application {
         static constexpr double BENCH_TAIL_S   = 3.0;    // "хвост" после загрузки
         static constexpr double BENCH_STEADY_S = 15.0;   // длительность сценария steady
 
+        void CreateDemoLoadedEntities();
         void UpdateBench(double now);
         void StartBenchBatch();
         bool BenchBatchDone() const;

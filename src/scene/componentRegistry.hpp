@@ -9,6 +9,8 @@
 
 #include "ecs/World.hpp"
 
+class ResourceManager;
+
 class ComponentRegistry {
 public:
 	using Loader = std::function<void(World&, Entity, const nlohmann::json&)>;
@@ -17,7 +19,7 @@ public:
 
 	bool Load(const std::string& name, World& world, Entity entity, const nlohmann::json& data) const;
 
-	static ComponentRegistry CreateDefault();
+	static ComponentRegistry CreateDefault(ResourceManager* resources = nullptr);
 private:
 	std::unordered_map<std::string, Loader> m_loaders;
 };

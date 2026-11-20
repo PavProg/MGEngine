@@ -35,10 +35,24 @@ set(SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/StbImage.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/resources/TinyObjLoader.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core/JobSystem.cpp
+
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/input/InputService.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/CameraControllerSystem.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ecs/systems/CameraSystem.cpp
     # PhysicsSystem.cpp временно исключен: заменим физ. движком
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES})
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    $<$<CONFIG:RelWithDebInfo>:MGE_TRANSFORM_BENCH_AVAILABLE>
+)
+
+set_property(
+    TARGET ${PROJECT_NAME}
+    PROPERTY VS_DEBUGGER_WORKING_DIRECTORY
+    "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
+)
 
 option(MGE_ENABLE_PROFILER "Профилирование через Tracy" ON)
 

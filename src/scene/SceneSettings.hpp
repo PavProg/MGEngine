@@ -3,11 +3,10 @@
 
 #include <glm/glm.hpp>
 
-enum class ProjectionType {
-	Perspective,
-	Orthographic
-};
+#include "ecs/Entity.hpp"
+#include "ecs/components/Camera.hpp"
 
+// Старый формат камеры используется при импорте сцен версии 1
 struct CameraSettings {
 	ProjectionType projection = ProjectionType::Orthographic;
 
@@ -26,6 +25,8 @@ struct CameraSettings {
 struct SceneSettings {
 	glm::vec4 background = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
 	CameraSettings camera;
+
+	Entity activeCamera = NULL_ENTITY;
 };
 
 #endif

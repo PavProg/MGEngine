@@ -1,0 +1,58 @@
+{
+  "version": 2,
+  "sceneSettings": {
+    "background": [0.04, 0.05, 0.08, 1.0],
+    "activeCamera": "MainCamera"
+  },
+  "entities": [
+    {
+      "id": "MainCamera",
+      "components": {
+        "Transform": {
+          "position": [0.0, 1.7, 5.0],
+          "rotation": [0.997564, -0.069756, 0.0, 0.0]
+        },
+        "Camera": { "projection": "perspective", "fovYDegrees": 60.0, "near": 0.1, "far": 200.0 },
+        "FreeFlyCameraController": { "enabled": true, "moveSpeed": 3.0, "lookSensitivityDegrees": 0.1 }
+      }
+    },
+    {
+      "id": "DemoCube",
+      "components": {
+        "Transform": {
+          "position": [0.0, 1.0, 0.0],
+          "rotation": [0.976296, 0.0, 0.216440, 0.0],
+          "scale": [2.0, 2.0, 2.0]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/camera_demo.obj",
+          "texture": "assets/textures/camera_demo.png",
+          "shader": "assets/shaders/model"
+        }
+      }
+    },
+    {
+      "id": "Floor",
+      "components": {
+        "Transform": { "position": [0.0, -0.06, 0.0], "scale": [12.0, 0.12, 12.0] },
+        "MeshRenderer": {
+          "mesh": "assets/models/camera_demo.obj",
+          "texture": "assets/textures/camera_demo.png",
+          "shader": "assets/shaders/model",
+          "tint": [0.44, 0.50, 0.55, 1.0]
+        }
+      }
+    },
+    {
+      "id": "ScaleMarker",
+      "components": {
+        "Transform": { "position": [2.0, 0.25, 0.5], "scale": [0.5, 0.5, 0.5] },
+        "MeshRenderer": {
+          "mesh": "assets/models/camera_demo.obj",
+          "texture": "assets/textures/camera_demo.png",
+          "shader": "assets/shaders/model"
+        }
+      }
+    }
+  ]
+}
